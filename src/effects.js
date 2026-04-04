@@ -1038,6 +1038,8 @@ export class FaceMeshSurface {
       wireAlpha: { label: 'Wire Opacity', min:0, max:255, step:1, default:180 },
       wireWidth: { label: 'Wire Width',   min:0, max:4,   step:0.1,default:0.4 },
       dotSize:   { label: 'Dot Size',     min:0, max:8,   step:0.25,default:1.5},
+      dashSize:  { label: 'Dash Size (0=solid)', min:0, max:20, step:0.5, default:0 },
+      dashGap:   { label: 'Dash Gap (0=auto)',   min:0, max:20, step:0.5, default:0 },
     };
     this.values = defaults(this.params);
   }
@@ -1156,7 +1158,7 @@ export class FaceMeshSurface {
 
     // ── Dot wireframe ─────────────────────────────────────────────────────────
     if (m !== 2) {
-      const { wireR, wireG, wireB, wireAlpha, wireWidth, dotSize } = v;
+      const { wireR, wireG, wireB, wireAlpha, wireWidth, dotSize, dashSize, dashGap } = v;
       const rgba = `rgba(${wireR},${wireG},${wireB},${wireAlpha/255})`;
       ctx.save();
       ctx.setTransform(1,0,0,1,0,0);
@@ -1164,6 +1166,9 @@ export class FaceMeshSurface {
       if (wireWidth > 0.05) {
         ctx.strokeStyle = rgba;
         ctx.lineWidth   = wireWidth;
+        // dash pattern: 0 = solid
+        const ds = dashSize ?? 0;
+        ctx.setLineDash(ds > 0 ? [ds, (dashGap > 0 ? dashGap : ds)] : []);
         ctx.beginPath();
         for (const c of conn) {
           const i = c.start ?? c[0], j = c.end ?? c[1];
@@ -1171,6 +1176,7 @@ export class FaceMeshSurface {
           ctx.lineTo(pts[j][0], pts[j][1]);
         }
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       // Dots at every landmark
       if (dotSize > 0.1) {
