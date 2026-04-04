@@ -358,121 +358,6 @@ export default function Panel({
     return () => clearInterval(poll)
   }, [videoCaptureRef])
 
-  // ── Keyboard shortcuts ─────────────────────────────────────────────────────
-  useEffect(() => {
-    const nudge = (pct) => {
-      for (const ef of chain) {
-        for (const [key, def] of Object.entries(ef.params)) {
-          if (def.type === 'select' || def.type === 'text' || def.noRandom) continue
-          const range = def.max - def.min
-          ef.values[key] = Math.max(def.min, Math.min(def.max,
-            parseFloat((ef.values[key] + range * pct).toFixed(6))))
-        }
-      }
-      bump()
-    }
-    const nudgeSel = (pct) => {
-      const ef = chain[selectedIdx]; if (!ef) return
-      for (const [key, def] of Object.entries(ef.params)) {
-        if (def.type === 'select' || def.type === 'text' || def.noRandom) continue
-        const range = def.max - def.min
-        ef.values[key] = Math.max(def.min, Math.min(def.max,
-          parseFloat((ef.values[key] + range * pct).toFixed(6))))
-      }
-      bump()
-    }
-    const onKey = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
-      const k = e.key
-      // Toggle effects by digit
-      if (k === ' ')  { e.preventDefault(); if (chain.length) { chain[0].enabled = !(chain[0].enabled !== false); bump() }; return }
-      // Number row: 1=smooth shuffle, 2=nudge −2%, 3=nudge +2%, 4=mini morph, 5=glow-boost(reserved),
-      // 6=color-cycle(reserved), 7=reorder, 8=tempo(reserved), 9=reset selected, 0=full chaos
-      if (k === '1') { smoothShuffle(); return }
-      if (k === '2') { nudge(-0.02); return }
-      if (k === '3') { nudge(+0.02); return }
-      if (k === '4') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if (def.type === 'select' || def.type === 'text' || def.noRandom) continue; const r = def.max - def.min; ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (Math.random() - 0.5) * r * 0.1)) } }); bump(); return }
-      if (k === '7') { if (chain.length > 1) { const i = Math.floor(Math.random() * chain.length); const j = (i + 1) % chain.length; [chain[i], chain[j]] = [chain[j], chain[i]]; bump() }; return }
-      if (k === '9') { const ef = chain[selectedIdx]; if (ef) { const EC = EFFECT_REGISTRY.find(c => c.label === ef.label); if (EC) { const def = new EC(); ef.values = { ...def.values } }; bump() }; return }
-      if (k === '0') { chain.forEach(randomizeEffect); bump(); return }
-      // Letter shortcuts
-      if (k === 'q') { nudgeSel(-0.01); return }
-      if (k === 'e') { nudgeSel(+0.01); return }
-      if (k === 'r' || k === 'R') { chain.forEach(randomizeEffect); bump(); return }
-      if (k === 'w') { // warp: randomize only first half of params
-        const ef = chain[selectedIdx]; if (!ef) return
-        const keys = Object.entries(ef.params).filter(([,d]) => d.type !== 'select' && d.type !== 'text' && !d.noRandom)
-        const half = Math.ceil(keys.length / 2)
-        keys.slice(0, half).forEach(([key, def]) => { ef.values[key] = def.min + Math.random() * (def.max - def.min) })
-        bump(); return
-      }
-      if (k === 's' || k === 'S') { smoothShuffle(); return }
-      if (k === 'a') { // add random effect from registry
-        const EC = EFFECT_REGISTRY[Math.floor(Math.random() * EFFECT_REGISTRY.length)]
-        const ef = new EC(); randomizeEffect(ef); chain.push(ef); setSelectedIdx(chain.length - 1); bump(); return
-      }
-      if (k === 'd') { // del last effect
-        if (chain.length > 0) { chain.pop(); setSelectedIdx(Math.max(0, chain.length - 1)); bump() }; return
-      }
-      if (k === 'x') { // remove selected effect
-        if (chain.length > 0 && selectedIdx >= 0 && selectedIdx < chain.length) {
-          chain.splice(selectedIdx, 1); setSelectedIdx(Math.max(0, selectedIdx - 1)); bump()
-        }; return
-      }
-      if (k === 'f') { // flip: reverse chain order
-        chain.reverse(); bump(); return
-      }
-      if (k === 'g') { // glitch burst: heavy randomize
-        chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if (def.type === 'select' || def.type === 'text' || def.noRandom) continue; if (Math.random() < 0.5) ef.values[key] = def.min + Math.random() * (def.max - def.min) } }); bump(); return
-      }
-      if (k === 'h') { // hue rotate: nudge hue-related params
-        chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('hue') || key.includes('color')) && def.type !== 'select') ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (def.max - def.min) * 0.05)) } }); bump(); return
-      }
-      if (k === 'j') { // jitter: small random tweak
-        chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if (def.type === 'select' || def.type === 'text' || def.noRandom) continue; const r = def.max - def.min; ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (Math.random() - 0.5) * r * 0.04)) } }); bump(); return
-      }
-      if (k === 'k') { // kill: disable all effects
-        chain.forEach(ef => { ef.enabled = false }); bump(); return
-      }
-      if (k === 'l') { // lock selected
-        const ef = chain[selectedIdx]; if (ef) { ef.locked = !ef.locked; bump() }; return
-      }
-      if (k === 'm') { // big morph: full randomize selected
-        const ef = chain[selectedIdx]; if (ef) { randomizeEffect(ef); bump() }; return
-      }
-      if (k === 'b') { // blur boost: nudge blur/spread params up
-        chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('blur') || key.includes('spread') || key.includes('radius')) && def.type !== 'select') ef.values[key] = Math.min(def.max, ef.values[key] + (def.max - def.min) * 0.05) } }); bump(); return
-      }
-      if (k === 'n') { // noise burst
-        chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('noise') || key.includes('jitter') || key.includes('glitch')) && def.type !== 'select') ef.values[key] = Math.min(def.max, ef.values[key] + (def.max - def.min) * 0.1) } }); bump(); return
-      }
-      if (k === 'p' || k === 'o') { // opacity nudge
-        const ef = chain[selectedIdx]; if (!ef) return
-        for (const [key, def] of Object.entries(ef.params)) {
-          if (key.includes('opac') || key.includes('alpha')) {
-            ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (k === 'p' ? 0.05 : -0.05) * (def.max - def.min)))
-          }
-        }; bump(); return
-      }
-      if (k === 'v') { // enable all effects
-        chain.forEach(ef => { ef.enabled = true }); bump(); return
-      }
-      if (k === 'i') { // invert: toggle enabled on all
-        chain.forEach(ef => { ef.enabled = !(ef.enabled !== false) }); bump(); return
-      }
-      if (k === 'c') { // color invert: negate color-like params
-        chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('color') || key.includes('hue') || key.includes('tint')) && def.type !== 'select') ef.values[key] = def.max - (ef.values[key] - def.min) } }); bump(); return
-      }
-      if (k === 'z') { // undo last nudge by resetting selected to defaults
-        const ef = chain[selectedIdx]; if (!ef) return
-        const EC = EFFECT_REGISTRY.find(c => c.label === ef.label); if (!EC) return
-        const def2 = new EC(); ef.values = { ...def2.values }; bump(); return
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [chain, bump, selectedIdx, smoothShuffle, randomizeEffect, setSelectedIdx])
-
   const handleDetectConf = (v) => {
     setDetectConf(v); window.MIN_DETECT_CONF = v
     clearTimeout(detectConfTimer.current)
@@ -542,6 +427,73 @@ export default function Panel({
     }
     requestAnimationFrame(frame)
   }
+
+  // ── Keyboard shortcuts (after smoothShuffle) ───────────────────────────────
+  useEffect(() => {
+    const nudge = (pct) => {
+      for (const ef of chain) {
+        for (const [key, def] of Object.entries(ef.params)) {
+          if (def.type === 'select' || def.type === 'text' || def.noRandom) continue
+          const range = def.max - def.min
+          ef.values[key] = Math.max(def.min, Math.min(def.max,
+            parseFloat((ef.values[key] + range * pct).toFixed(6))))
+        }
+      }
+      bump()
+    }
+    const nudgeSel = (pct) => {
+      const ef = chain[selectedIdx]; if (!ef) return
+      for (const [key, def] of Object.entries(ef.params)) {
+        if (def.type === 'select' || def.type === 'text' || def.noRandom) continue
+        const range = def.max - def.min
+        ef.values[key] = Math.max(def.min, Math.min(def.max,
+          parseFloat((ef.values[key] + range * pct).toFixed(6))))
+      }
+      bump()
+    }
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      const k = e.key
+      if (k === ' ')  { e.preventDefault(); if (chain.length) { chain[0].enabled = !(chain[0].enabled !== false); bump() }; return }
+      if (k === '1') { smoothShuffle(); return }
+      if (k === '2') { nudge(-0.02); return }
+      if (k === '3') { nudge(+0.02); return }
+      if (k === '4') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if (def.type === 'select' || def.type === 'text' || def.noRandom) continue; const r = def.max - def.min; ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (Math.random() - 0.5) * r * 0.1)) } }); bump(); return }
+      if (k === '7') { if (chain.length > 1) { const i = Math.floor(Math.random() * chain.length); const j = (i + 1) % chain.length; [chain[i], chain[j]] = [chain[j], chain[i]]; bump() }; return }
+      if (k === '9') { const ef = chain[selectedIdx]; if (ef) { const EC = EFFECT_REGISTRY.find(c => c.label === ef.label); if (EC) { const def = new EC(); ef.values = { ...def.values } }; bump() }; return }
+      if (k === '0') { chain.forEach(randomizeEffect); bump(); return }
+      if (k === 'q') { nudgeSel(-0.01); return }
+      if (k === 'e') { nudgeSel(+0.01); return }
+      if (k === 'r' || k === 'R') { chain.forEach(randomizeEffect); bump(); return }
+      if (k === 'w') {
+        const ef = chain[selectedIdx]; if (!ef) return
+        const keys = Object.entries(ef.params).filter(([,d]) => d.type !== 'select' && d.type !== 'text' && !d.noRandom)
+        const half = Math.ceil(keys.length / 2)
+        keys.slice(0, half).forEach(([key, def]) => { ef.values[key] = def.min + Math.random() * (def.max - def.min) })
+        bump(); return
+      }
+      if (k === 's' || k === 'S') { smoothShuffle(); return }
+      if (k === 'a') { const EC = EFFECT_REGISTRY[Math.floor(Math.random() * EFFECT_REGISTRY.length)]; const ef = new EC(); randomizeEffect(ef); chain.push(ef); setSelectedIdx(chain.length - 1); bump(); return }
+      if (k === 'd') { if (chain.length > 0) { chain.pop(); setSelectedIdx(Math.max(0, chain.length - 1)); bump() }; return }
+      if (k === 'x') { if (chain.length > 0 && selectedIdx >= 0 && selectedIdx < chain.length) { chain.splice(selectedIdx, 1); setSelectedIdx(Math.max(0, selectedIdx - 1)); bump() }; return }
+      if (k === 'f') { chain.reverse(); bump(); return }
+      if (k === 'g') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if (def.type === 'select' || def.type === 'text' || def.noRandom) continue; if (Math.random() < 0.5) ef.values[key] = def.min + Math.random() * (def.max - def.min) } }); bump(); return }
+      if (k === 'h') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('hue') || key.includes('color')) && def.type !== 'select') ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (def.max - def.min) * 0.05)) } }); bump(); return }
+      if (k === 'j') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if (def.type === 'select' || def.type === 'text' || def.noRandom) continue; const r = def.max - def.min; ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (Math.random() - 0.5) * r * 0.04)) } }); bump(); return }
+      if (k === 'k') { chain.forEach(ef => { ef.enabled = false }); bump(); return }
+      if (k === 'l') { const ef = chain[selectedIdx]; if (ef) { ef.locked = !ef.locked; bump() }; return }
+      if (k === 'm') { const ef = chain[selectedIdx]; if (ef) { randomizeEffect(ef); bump() }; return }
+      if (k === 'b') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('blur') || key.includes('spread') || key.includes('radius')) && def.type !== 'select') ef.values[key] = Math.min(def.max, ef.values[key] + (def.max - def.min) * 0.05) } }); bump(); return }
+      if (k === 'n') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('noise') || key.includes('jitter') || key.includes('glitch')) && def.type !== 'select') ef.values[key] = Math.min(def.max, ef.values[key] + (def.max - def.min) * 0.1) } }); bump(); return }
+      if (k === 'p' || k === 'o') { const ef = chain[selectedIdx]; if (!ef) return; for (const [key, def] of Object.entries(ef.params)) { if (key.includes('opac') || key.includes('alpha')) ef.values[key] = Math.max(def.min, Math.min(def.max, ef.values[key] + (k === 'p' ? 0.05 : -0.05) * (def.max - def.min))) }; bump(); return }
+      if (k === 'v') { chain.forEach(ef => { ef.enabled = true }); bump(); return }
+      if (k === 'i') { chain.forEach(ef => { ef.enabled = !(ef.enabled !== false) }); bump(); return }
+      if (k === 'c') { chain.forEach(ef => { for (const [key, def] of Object.entries(ef.params)) { if ((key.includes('color') || key.includes('hue') || key.includes('tint')) && def.type !== 'select') ef.values[key] = def.max - (ef.values[key] - def.min) } }); bump(); return }
+      if (k === 'z') { const ef = chain[selectedIdx]; if (!ef) return; const EC = EFFECT_REGISTRY.find(c => c.label === ef.label); if (!EC) return; const def2 = new EC(); ef.values = { ...def2.values }; bump(); return }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [chain, bump, selectedIdx, smoothShuffle, randomizeEffect, setSelectedIdx])
 
   const toggleSine = () => {
     if (sineActiveRef.current) {

@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 const PORT = 8443;
-const ROOT = __dirname;
+const ROOT = path.join(__dirname, 'dist');
 
 const MIME = {
   '.html': 'text/html',
@@ -104,7 +104,7 @@ async function serve(req, res) {
 
   // ── /api/objects — list 3D model files in models/objects/ ────────────────────
   if (urlPath === '/api/objects') {
-    const objDir = path.join(ROOT, 'models', 'objects');
+    const objDir = path.join(__dirname, 'public', 'models', 'objects');
     const exts   = new Set(['.glb', '.gltf', '.fbx', '.obj']);
     let files = [];
     try {
@@ -121,8 +121,14 @@ async function serve(req, res) {
 
   // Special route: /install-ca  →  serve rootCA.pem for iOS profile install
   if (urlPath === '/install-ca') {
-    urlPath = '/rootCA.pem';
+    const caPath = path.join(__dirname, 'rootCA.pem');
     res.setHeader('Content-Disposition', 'attachment; filename="mkcert-rootCA.pem"');
+    res.setHeader('Content-Type', 'application/x-pem-file');
+    fs.readFile(caPath, (err, data) => {
+      if (err) { res.writeHead(404); res.end('rootCA.pem not found'); return; }
+      res.writeHead(200); res.end(data);
+    });
+    return;
   }
 
   const filePath = path.join(ROOT, urlPath);
@@ -142,8 +148,8 @@ async function serve(req, res) {
 }
 
 const sslOptions = {
-  key:  fs.readFileSync(path.join(ROOT, 'key.pem')),
-  cert: fs.readFileSync(path.join(ROOT, 'cert.pem')),
+  key:  fs.readFileSync(path.join(__dirname, 'key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),
 };
 
 https.createServer(sslOptions, serve).listen(PORT, '0.0.0.0', () => {

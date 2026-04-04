@@ -45,7 +45,10 @@ function getFingerNailBoxes(handLandmarks, p) {
 }
 
 // ── Face mesh triangulation (built once from tesselation connections) ─────────
-let _faceTriCache = null;
+let _faceTriCache  = null;
+let _faceQuadCache = null;
+let _faceHexCache  = null;
+
 function _buildFaceTriangles(connections) {
   if (_faceTriCache) return _faceTriCache;
   const adj = new Map();
@@ -68,6 +71,103 @@ function _buildFaceTriangles(connections) {
   }
   return (_faceTriCache = tris);
 }
+
+// Pair adjacent triangles sharing an edge into quads [i,j,k,l].
+// Any triangle that can't be paired stays as a degenerate tri [i,j,k,k].
+function _buildFaceQuads(connections) {
+  if (_faceQuadCache) return _faceQuadCache;
+  const tris = _buildFaceTriangles(connections);
+  // Build edge → triangle index map
+  const edgeMap = new Map();
+  for (let t = 0; t < tris.length; t++) {
+    const [a, b, c] = tris[t];
+    for (const edge of [[a,b],[b,c],[a,c]]) {
+      const key = edge.slice().sort((x,y)=>x-y).join(',');
+      if (!edgeMap.has(key)) edgeMap.set(key, []);
+      edgeMap.get(key).push(t);
+    }
+  }
+  const used = new Uint8Array(tris.length);
+  const quads = [];
+  for (let t = 0; t < tris.length; t++) {
+    if (used[t]) continue;
+    const [a, b, c] = tris[t];
+    let paired = false;
+    for (const edge of [[a,b],[b,c],[a,c]]) {
+      const key = edge.slice().sort((x,y)=>x-y).join(',');
+      const pair = edgeMap.get(key);
+      if (!pair) continue;
+      const t2 = pair.find(ti => ti !== t && !used[ti]);
+      if (t2 === undefined) continue;
+      // The fourth vertex is the one in t2 not in edge
+      const other = tris[t2].find(v => v !== edge[0] && v !== edge[1]);
+      if (other === undefined) continue;
+      // Build quad: shared edge + the two outer verts, in winding order
+      const ea = edge[0], eb = edge[1];
+      // outer verts
+      const oa = [a,b,c].find(v => v !== ea && v !== eb);
+      // Arrange as convex quad: oa, ea, other, eb
+      quads.push([oa, ea, other, eb]);
+      used[t] = 1; used[t2] = 1;
+      paired = true; break;
+    }
+    if (!paired) quads.push([a, b, c, c]); // unpaired tri → degenerate quad
+  }
+  return (_faceQuadCache = quads);
+}
+
+// Group all triangles sharing each landmark into per-vertex convex hulls.
+// Returns array of index-arrays (one hull per landmark that has ≥3 triangles around it).
+function _buildFaceHexagons(connections) {
+  if (_faceHexCache) return _faceHexCache;
+  const tris = _buildFaceTriangles(connections);
+  // Collect triangle indices for each vertex
+  const vtxTris = new Map();
+  for (let t = 0; t < tris.length; t++) {
+    for (const v of tris[t]) {
+      if (!vtxTris.has(v)) vtxTris.set(v, []);
+      vtxTris.get(v).push(t);
+    }
+  }
+  // For each vertex with ≥3 surrounding tris, collect all unique vertices in those tris
+  const hexes = [];
+  const usedVtx = new Set();
+  for (const [cv, triList] of vtxTris) {
+    if (triList.length < 3 || usedVtx.has(cv)) continue;
+    // Collect all perimeter vertices (exclude the center one)
+    const perim = new Set();
+    for (const ti of triList) { for (const v of tris[ti]) { if (v !== cv) perim.add(v); } }
+    // Include center so the polygon covers it
+    hexes.push({ center: cv, perim: [...perim], tris: triList });
+    usedVtx.add(cv);
+  }
+  return (_faceHexCache = hexes);
+}
+
+// Convex hull (Graham scan) on 2D points, returns indices into pts array
+function _convexHull(pts) {
+  if (pts.length <= 2) return pts.map((_,i)=>i);
+  const n = pts.length;
+  let lo = 0;
+  for (let i = 1; i < n; i++) if (pts[i][1] > pts[lo][1] || (pts[i][1] === pts[lo][1] && pts[i][0] < pts[lo][0])) lo = i;
+  const idx = [...Array(n).keys()].filter(i => i !== lo);
+  const [lx, ly] = pts[lo];
+  idx.sort((a,b) => {
+    const ax = pts[a][0]-lx, ay = pts[a][1]-ly, bx = pts[b][0]-lx, by = pts[b][1]-ly;
+    const cross = ax*by - ay*bx;
+    return cross !== 0 ? -cross : (ax*ax+ay*ay) - (bx*bx+by*by);
+  });
+  const hull = [lo, idx[0]];
+  for (let i = 1; i < idx.length; i++) {
+    while (hull.length >= 2) {
+      const [ox,oy] = pts[hull[hull.length-2]], [ax2,ay2] = pts[hull[hull.length-1]], [bx2,by2] = pts[idx[i]];
+      if ((ax2-ox)*(by2-oy) - (ay2-oy)*(bx2-ox) <= 0) hull.pop(); else break;
+    }
+    hull.push(idx[i]);
+  }
+  return hull;
+}
+
 
 function defaults(params) {
   return Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.default]));
@@ -904,6 +1004,18 @@ function _affineTriDraw(ctx, img, W, H,
   ctx.restore();
 }
 
+// Diamond shape: given 4 landmark points [p0..p3], return the 4 corners of a
+// square centred on their centroid, aligned so it's rotated 45° (pointy-side up).
+function _diamondCorners(p0, p1, p2, p3) {
+  const cx = (p0[0]+p1[0]+p2[0]+p3[0])/4;
+  const cy = (p0[1]+p1[1]+p2[1]+p3[1])/4;
+  // Use half the max spread as the diamond "radius"
+  let r = 0;
+  for (const p of [p0,p1,p2,p3]) r = Math.max(r, Math.abs(p[0]-cx), Math.abs(p[1]-cy));
+  r = Math.max(r, 2);
+  return [[cx, cy-r],[cx+r, cy],[cx, cy+r],[cx-r, cy]];
+}
+
 export class FaceMeshSurface {
   static label    = 'Face Mesh Surface';
   static category = 'DRAW';
@@ -916,6 +1028,9 @@ export class FaceMeshSurface {
       mode:      { label: 'Mode 0=wire 1=surf+wire 2=surf', min:0, max:2, step:1,    default:1   },
       // surface texture: 0 = flat-poly colour  1 = affine texture (slower)
       texture:   { label: 'Texture 0=flat 1=mapped',        min:0, max:1, step:1,    default:0   },
+      // polygon shape
+      shape:     { label: 'Shape', type: 'select', default: 'tri',
+                   options: [['tri','▽ Triangle'],['quad','■ Quad'],['diamond','◆ Diamond'],['hex','⬡ Hexagon']] },
       surfAlpha: { label: 'Surface Opacity',                 min:0, max:1, step:0.02, default:0.9 },
       wireR:     { label: 'Wire R',    min:0, max:255, step:1,    default:0   },
       wireG:     { label: 'Wire G',    min:0, max:255, step:1,    default:200 },
@@ -947,46 +1062,96 @@ export class FaceMeshSurface {
 
     for (const landmarks of allFaceLMs) {
     const pts = landmarks.map(lm => [lm.x * W, lm.y * H]);
+    const shape = v.shape ?? 'tri';
 
     // ── Surface ───────────────────────────────────────────────────────────────
     if (m >= 1) {
-      const tris = _buildFaceTriangles(conn);
+      ctx.save();
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.globalAlpha = v.surfAlpha;
 
-      if (v.texture >= 0.5) {
-        // Affine texture mapping: use pre-captured snap
-        ctx.save();
-        ctx.setTransform(1,0,0,1,0,0);
-        ctx.globalAlpha = v.surfAlpha;
-        for (const [i,j,k] of tris) {
-          const [x0,y0]=pts[i],[x1,y1]=pts[j],[x2,y2]=pts[k];
-          const area = Math.abs((x1-x0)*(y2-y0)-(x2-x0)*(y1-y0));
-          if (area < 1.5) continue;
-          _affineTriDraw(ctx, this._snap, W, H,
-            x0,y0, x1,y1, x2,y2,
-            x0,y0, x1,y1, x2,y2);
+      if (shape === 'quad' || shape === 'diamond') {
+        const polys = _buildFaceQuads(conn); // array of [i,j,k,l]
+        if (v.texture >= 0.5) {
+          // Texture: split each quad back into 2 tris
+          for (const [i,j,k,l] of polys) {
+            const corners = shape === 'diamond'
+              ? _diamondCorners(pts[i],pts[j],pts[k],pts[l])
+              : [pts[i],pts[j],pts[k],pts[l]];
+            const [p0,p1,p2,p3] = corners;
+            const a1 = Math.abs((p1[0]-p0[0])*(p2[1]-p0[1])-(p2[0]-p0[0])*(p1[1]-p0[1]));
+            if (a1 > 1.5) _affineTriDraw(ctx,this._snap,W,H,p0[0],p0[1],p1[0],p1[1],p2[0],p2[1],p0[0],p0[1],p1[0],p1[1],p2[0],p2[1]);
+            const a2 = Math.abs((p2[0]-p0[0])*(p3[1]-p0[1])-(p3[0]-p0[0])*(p2[1]-p0[1]));
+            if (a2 > 1.5) _affineTriDraw(ctx,this._snap,W,H,p0[0],p0[1],p2[0],p2[1],p3[0],p3[1],p0[0],p0[1],p2[0],p2[1],p3[0],p3[1]);
+          }
+        } else {
+          const img = ctx.getImageData(0,0,W,H); const pix = img.data;
+          for (const [i,j,k,l] of polys) {
+            const corners = shape === 'diamond'
+              ? _diamondCorners(pts[i],pts[j],pts[k],pts[l])
+              : [pts[i],pts[j],pts[k],pts[l]];
+            const [p0,p1,p2,p3] = corners;
+            const cx2 = Math.min(W-1,Math.max(0,Math.round((p0[0]+p1[0]+p2[0]+p3[0])/4)));
+            const cy2 = Math.min(H-1,Math.max(0,Math.round((p0[1]+p1[1]+p2[1]+p3[1])/4)));
+            const ci2 = (cy2*W+cx2)*4;
+            ctx.fillStyle = `rgb(${pix[ci2]},${pix[ci2+1]},${pix[ci2+2]})`;
+            ctx.beginPath();
+            ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.lineTo(p3[0],p3[1]);
+            ctx.closePath(); ctx.fill();
+          }
         }
-        ctx.restore();
+      } else if (shape === 'hex') {
+        const hexes = _buildFaceHexagons(conn);
+        if (v.texture >= 0.5) {
+          for (const { center, perim } of hexes) {
+            const allPts = [pts[center], ...perim.map(v2=>pts[v2])];
+            const hullIdx = _convexHull(allPts);
+            const hull = hullIdx.map(i2=>allPts[i2]);
+            for (let h = 1; h < hull.length - 1; h++) {
+              const a1 = Math.abs((hull[h][0]-hull[0][0])*(hull[h+1][1]-hull[0][1])-(hull[h+1][0]-hull[0][0])*(hull[h][1]-hull[0][1]));
+              if (a1 > 1.5) _affineTriDraw(ctx,this._snap,W,H,hull[0][0],hull[0][1],hull[h][0],hull[h][1],hull[h+1][0],hull[h+1][1],hull[0][0],hull[0][1],hull[h][0],hull[h][1],hull[h+1][0],hull[h+1][1]);
+            }
+          }
+        } else {
+          const img = ctx.getImageData(0,0,W,H); const pix = img.data;
+          for (const { center, perim } of hexes) {
+            const allPts = [pts[center], ...perim.map(v2=>pts[v2])];
+            const hullIdx = _convexHull(allPts);
+            const hull = hullIdx.map(i2=>allPts[i2]);
+            const cx2 = Math.min(W-1,Math.max(0,Math.round(hull.reduce((s,p2)=>s+p2[0],0)/hull.length)));
+            const cy2 = Math.min(H-1,Math.max(0,Math.round(hull.reduce((s,p2)=>s+p2[1],0)/hull.length)));
+            const ci2 = (cy2*W+cx2)*4;
+            ctx.fillStyle = `rgb(${pix[ci2]},${pix[ci2+1]},${pix[ci2+2]})`;
+            ctx.beginPath();
+            hull.forEach(([hx,hy],hi) => hi===0 ? ctx.moveTo(hx,hy) : ctx.lineTo(hx,hy));
+            ctx.closePath(); ctx.fill();
+          }
+        }
       } else {
-        // Flat-poly: fill each triangle with the colour at its centroid
-        const img = ctx.getImageData(0, 0, W, H);
-        const pix = img.data;
-        ctx.save();
-        ctx.setTransform(1,0,0,1,0,0);
-        ctx.globalAlpha = v.surfAlpha;
-        for (const [i,j,k] of tris) {
-          const [x0,y0]=pts[i],[x1,y1]=pts[j],[x2,y2]=pts[k];
-          const area = Math.abs((x1-x0)*(y2-y0)-(x2-x0)*(y1-y0));
-          if (area < 1.5) continue;
-          const cx = Math.min(W-1, Math.max(0, Math.round((x0+x1+x2)/3)));
-          const cy = Math.min(H-1, Math.max(0, Math.round((y0+y1+y2)/3)));
-          const ci = (cy*W + cx) * 4;
-          ctx.fillStyle = `rgb(${pix[ci]},${pix[ci+1]},${pix[ci+2]})`;
-          ctx.beginPath();
-          ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.lineTo(x2,y2);
-          ctx.fill();
+        // Triangle (default)
+        const tris = _buildFaceTriangles(conn);
+        if (v.texture >= 0.5) {
+          for (const [i,j,k] of tris) {
+            const [x0,y0]=pts[i],[x1,y1]=pts[j],[x2,y2]=pts[k];
+            const area = Math.abs((x1-x0)*(y2-y0)-(x2-x0)*(y1-y0));
+            if (area < 1.5) continue;
+            _affineTriDraw(ctx, this._snap, W, H, x0,y0, x1,y1, x2,y2, x0,y0, x1,y1, x2,y2);
+          }
+        } else {
+          const img = ctx.getImageData(0,0,W,H); const pix = img.data;
+          for (const [i,j,k] of tris) {
+            const [x0,y0]=pts[i],[x1,y1]=pts[j],[x2,y2]=pts[k];
+            const area = Math.abs((x1-x0)*(y2-y0)-(x2-x0)*(y1-y0));
+            if (area < 1.5) continue;
+            const cx2=Math.min(W-1,Math.max(0,Math.round((x0+x1+x2)/3)));
+            const cy2=Math.min(H-1,Math.max(0,Math.round((y0+y1+y2)/3)));
+            const ci2=(cy2*W+cx2)*4;
+            ctx.fillStyle = `rgb(${pix[ci2]},${pix[ci2+1]},${pix[ci2+2]})`;
+            ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.lineTo(x2,y2); ctx.fill();
+          }
         }
-        ctx.restore();
       }
+      ctx.restore();
     }
 
     // ── Dot wireframe ─────────────────────────────────────────────────────────
