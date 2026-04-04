@@ -860,7 +860,7 @@ export default function Panel({
             </li>,
           ])}
         </ul>
-        <div className="params-panel">
+        <div className="params-panel" style={{ flexShrink: 0, overflowY: 'auto', maxHeight: '50%' }}>
           {!selEffect && <div className="hint" style={{ padding: 4 }}>Select effect to edit params.</div>}
           {selEffect && (
             <div>
@@ -1093,33 +1093,39 @@ export default function Panel({
 
   return (
     <div className="panel-inner">
-      {/* Tab bar — each button toggles its section */}
-      <nav className="tab-bar">
-        {TABS.map(t => (
-          <button key={t.id} className={`tab-btn${sectionsOpen[t.id] ? ' active' : ''}`}
-            onClick={() => toggleSection(t.id)} title={t.label}>
-            <span className="tab-icon">{t.icon}</span>
-            <span className="tab-label">{t.label}</span>
-          </button>
-        ))}
-      </nav>
-
-      {/* All sections stacked, each collapsible */}
-      <div className="tab-body" ref={tabBodyRef}>
-        {TABS.map(t => (
-          <div key={t.id} ref={el => { sectionRefs.current[t.id] = el }} className="psec">
-            <button className="psec-hdr" onClick={() => toggleSection(t.id)}>
-              <span className="tab-icon" style={{ fontSize: 12 }}>{t.icon}</span>
-              <span style={{ flex: 1, letterSpacing: '0.5px' }}>{t.label}</span>
-              <span style={{ fontSize: 10, opacity: 0.5 }}>{sectionsOpen[t.id] ? '▾' : '▸'}</span>
-            </button>
-            {sectionsOpen[t.id] && (
-              <div className="psec-body">
-                {renderSectionContent(t.id)}
+      {/* 2-column layout — left: controls, right: effects+params */}
+      <div className="two-col">
+        {/* ── LEFT COLUMN: all control sections ── */}
+        <div className="col-left">
+          {['video','detect','output','audio','random','more'].map(id => {
+            const t = TABS.find(x => x.id === id); if (!t) return null
+            return (
+              <div key={id} ref={el => { sectionRefs.current[id] = el }} className="psec">
+                <button className="psec-hdr" onClick={() => toggleSection(id)}>
+                  <span className="tab-icon" style={{ fontSize: 11 }}>{t.icon}</span>
+                  <span style={{ flex: 1 }}>{t.label}</span>
+                  <span style={{ fontSize: 9, opacity: 0.4 }}>{sectionsOpen[id] ? '▾' : '▸'}</span>
+                </button>
+                {sectionsOpen[id] && (
+                  <div className="psec-body">{renderSectionContent(id)}</div>
+                )}
               </div>
-            )}
+            )
+          })}
+        </div>
+
+        {/* ── RIGHT COLUMN: effects list + params editor ── */}
+        <div className="col-right">
+          <div className="psec" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="psec-hdr" style={{ cursor: 'default' }}>
+              <span className="tab-icon" style={{ fontSize: 11 }}>✦</span>
+              <span style={{ flex: 1 }}>Effects</span>
+            </div>
+            <div className="psec-body" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {renderSectionContent('effects')}
+            </div>
           </div>
-        ))}
+        </div>
       </div>
     </div>
   )

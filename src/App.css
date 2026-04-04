@@ -147,7 +147,8 @@ input[type="range"] {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 340px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #222 #111;
@@ -318,12 +319,12 @@ input[type="range"] {
   will-change: width;
 }
 .panel--open {
-  width: 290px;
+  width: 560px;
   border-left: 1px solid #222;
 }
 
 .panel-inner {
-  width: 290px;
+  width: 560px;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -331,7 +332,40 @@ input[type="range"] {
   contain: layout style;
 }
 
-/* Toggle button on canvas edge */
+/* ── Two-column layout ── */
+.two-col {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  gap: 0;
+}
+
+.col-left {
+  width: 220px;
+  flex-shrink: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #222 #111;
+  border-right: 1px solid #1a1a1a;
+  contain: layout style;
+}
+.col-left::-webkit-scrollbar { width: 3px; }
+.col-left::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+
+.col-right {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─ Tab bar / body (legacy — kept for reference) ─────────── */
+.tab-bar { display: none; }
+.tab-body { display: none; }
 .panel-toggle {
   position: absolute;
   right: 0;
