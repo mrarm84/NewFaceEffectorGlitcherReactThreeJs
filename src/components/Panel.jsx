@@ -1,5 +1,5 @@
 // Panel.jsx — Tabbed control panel with hide toggle
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { EFFECT_REGISTRY } from '../effects'
 
 const BLEND_MODES = [
@@ -241,7 +241,20 @@ export default function Panel({
   const setShowStats = onShowStatsChange ?? _setStatsLegacy ?? (() => {})
   const [sectionsOpen, setSectionsOpen] = useState({ video:true, effects:true, random:true, detect:true, output:true, audio:true, more:true })
   const [, setV] = useState(0)
-  const bump = useCallback(() => setV(v => v + 1), [])
+  const tabBodyRef    = useRef(null)
+  const savedScrollRef = useRef(0)
+
+  // Save scroll before every render triggered by bump, restore after
+  const bump = useCallback(() => {
+    if (tabBodyRef.current) savedScrollRef.current = tabBodyRef.current.scrollTop
+    setV(v => v + 1)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (tabBodyRef.current && savedScrollRef.current > 0) {
+      tabBodyRef.current.scrollTop = savedScrollRef.current
+    }
+  })
   const sectionRefs = useRef({})
   const toggleSection = useCallback((id) => {
     setSectionsOpen(s => {
@@ -1092,7 +1105,7 @@ export default function Panel({
       </nav>
 
       {/* All sections stacked, each collapsible */}
-      <div className="tab-body">
+      <div className="tab-body" ref={tabBodyRef}>
         {TABS.map(t => (
           <div key={t.id} ref={el => { sectionRefs.current[t.id] = el }} className="psec">
             <button className="psec-hdr" onClick={() => toggleSection(t.id)}>
