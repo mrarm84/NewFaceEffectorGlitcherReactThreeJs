@@ -2,6 +2,106 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { EFFECT_REGISTRY } from '../effects'
 
+// ── Audio spectrum meter ────────────────────────────────────────────────────
+// Draws directly onto a <canvas> via its own RAF — zero React re-renders.
+function AudioMeter({ analyserRef, freqDataRef, isActive }) {
+  const canvasRef = useRef(null)
+  const rafRef    = useRef(null)
+  const peakRef   = useRef(new Float32Array(24).fill(0)) // peak-hold per bin
+  const peakTRef  = useRef(new Float32Array(24).fill(0)) // timer per bin
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const BINS = 24
+    const PEAK_HOLD = 800  // ms before peak falls
+    const PEAK_FALL = 0.008 // fall speed per frame
+
+    const draw = () => {
+      rafRef.current = requestAnimationFrame(draw)
+      const an = analyserRef?.current
+      const fd = freqDataRef?.current
+      const W = canvas.width, H = canvas.height
+      ctx.clearRect(0, 0, W, H)
+
+      // background
+      ctx.fillStyle = '#0a0a0a'
+      ctx.fillRect(0, 0, W, H)
+
+      if (!an || !fd || !isActive) {
+        // idle: just draw grid
+        ctx.strokeStyle = '#1a1a1a'
+        ctx.lineWidth = 1
+        for (let i = 0; i <= 4; i++) {
+          const y = Math.round(i * H / 4) + 0.5
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke()
+        }
+        return
+      }
+
+      an.getByteFrequencyData(fd)
+
+      // downsample fd → BINS frequency bands (skip very low freq bin 0)
+      const srcLen = fd.length
+      const bandW  = (W - BINS + 1) / BINS
+      const now    = performance.now()
+
+      for (let i = 0; i < BINS; i++) {
+        const src0 = Math.floor((i / BINS) * srcLen)
+        const src1 = Math.floor(((i + 1) / BINS) * srcLen)
+        let mx = 0
+        for (let j = src0; j < src1; j++) mx = Math.max(mx, fd[j])
+        const level = mx / 255  // 0..1
+
+        // peak hold
+        if (level >= peakRef.current[i]) {
+          peakRef.current[i] = level
+          peakTRef.current[i] = now
+        } else if (now - peakTRef.current[i] > PEAK_HOLD) {
+          peakRef.current[i] = Math.max(0, peakRef.current[i] - PEAK_FALL)
+        }
+
+        const x  = i * (bandW + 1)
+        const bH = level * H
+
+        // bar gradient: dark-blue → cyan → green → yellow → red
+        const grad = ctx.createLinearGradient(0, H, 0, 0)
+        grad.addColorStop(0,    '#0a2a4a')
+        grad.addColorStop(0.4,  '#00aaff')
+        grad.addColorStop(0.65, '#00ffaa')
+        grad.addColorStop(0.82, '#aaff00')
+        grad.addColorStop(1,    '#ff3300')
+        ctx.fillStyle = grad
+        ctx.fillRect(x, H - bH, bandW, bH)
+
+        // peak tick
+        const pY = H - peakRef.current[i] * H
+        ctx.fillStyle = peakRef.current[i] > 0.75 ? '#ff4422' : '#44ffcc'
+        ctx.fillRect(x, Math.max(0, pY - 1), bandW, 2)
+      }
+
+      // RMS level bar at bottom (1px)
+      let sum = 0; for (let i = 0; i < fd.length; i++) sum += fd[i]
+      const rms = (sum / fd.length) / 255
+      ctx.fillStyle = `rgba(255,255,255,0.25)`
+      ctx.fillRect(0, H - 1, rms * W, 1)
+    }
+
+    draw()
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [analyserRef, freqDataRef, isActive])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={200}
+      height={48}
+      style={{ width: '100%', height: 48, display: 'block', borderRadius: 3, imageRendering: 'pixelated' }}
+    />
+  )
+}
+
 const BLEND_MODES = [
   ['source-over','Normal'],['lighter','Add'],['multiply','Multiply'],['screen','Screen'],
   ['overlay','Overlay'],['difference','Difference'],['exclusion','Exclusion'],['xor','XOR'],
@@ -1015,16 +1115,19 @@ export default function Panel({
       <>
         <Check label="Enable Audio Reactivity" checked={audioReact}
           onChange={async v => { window.AUDIO_REACT = v; setAudioReact(v); if (v && !audioHook?.isActive) await audioHook?.init?.() }} />
+        <div style={{ margin: '4px 0' }}>
+          <AudioMeter
+            analyserRef={audioHook?.analyserRef}
+            freqDataRef={audioHook?.freqDataRef}
+            isActive={audioHook?.isActive}
+          />
+        </div>
         {audioReact && (
           <>
             <div className="field-group">
               <label className="field-label">Sensitivity {audioSens}</label>
               <input type="range" min="1" max="128" step="1" value={audioSens}
                 onChange={e => { const v = parseInt(e.target.value); window.AUDIO_SENSITIVITY = v; setAudioSens(v) }} />
-            </div>
-            <div className="audio-level-wrap">
-              <div id="audio-level-bar" className="audio-level-bar"
-                style={{ width: `${((audioHook?.audioLevel ?? audioHook?.level ?? 0) * 100).toFixed(1)}%` }} />
             </div>
             <div className="hint">On beat: nudges params of all enabled effects.</div>
           </>
