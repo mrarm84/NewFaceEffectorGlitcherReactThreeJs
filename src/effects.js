@@ -1417,6 +1417,9 @@ export class HandObject {
     this.category = HandObject.category;
     this._ax = 0.4;
     this._ay = 0;
+    // smoothed target state
+    this._cx = null; this._cy = null; this._rad = null;
+    this._p1x = null; this._p1y = null; this._p2x = null; this._p2y = null;
     this.params = {
       shape:    { label: 'Shape',     type: 'select', default: 'box', options: [
         ['triangle','Triangle'],['box','Box (Cube)'],['sphere','Sphere'],
@@ -1426,6 +1429,9 @@ export class HandObject {
       style:    { label: 'Style',     type: 'select', default: 'wireframe', options: [
         ['wireframe','Wireframe'],['solid','Solid'],['dotted','Dotted'],['striped','Striped'],['lines','Lines'],
       ]},
+      count:     { label: 'Count',     min:1,   max:7,   step:1,    default:1   },
+      smooth:    { label: 'Smooth',    min:0,   max:0.97,step:0.01, default:0.82 },
+      spread:    { label: 'Spread',    min:0,   max:1.5, step:0.05, default:0.85 },
       r:         { label: 'Color R',   min:0,   max:255, step:1,    default:80  },
       g:         { label: 'Color G',   min:0,   max:255, step:1,    default:220 },
       b:         { label: 'Color B',   min:0,   max:255, step:1,    default:255 },
@@ -1444,30 +1450,79 @@ export class HandObject {
     if (!allHandLMs?.length) return;
     const { r, g, b, opacity, size, thick, rotSpeedY, rotSpeedX, tiltX, segs, glow } = this.values;
     const shape = this.values.shape, style = this.values.style;
+    const count = Math.round(this.values.count);
+    const smooth = this.values.smooth;
+    const spread = this.values.spread;
     const W = p.width, H = p.height;
-    let cx, cy, radius;
+    const lerpF = 1 - smooth; // how fast to approach target (1=instant, 0=frozen)
+
+    // ── Compute raw target positions ──────────────────────────
+    let rawCx, rawCy, rawRad, rawP1x, rawP1y, rawP2x, rawP2y;
     if (allHandLMs.length >= 2) {
       const p1 = _hoHandPalm(allHandLMs[0], W, H);
       const p2 = _hoHandPalm(allHandLMs[1], W, H);
-      cx=(p1.x+p2.x)/2; cy=(p1.y+p2.y)/2;
-      radius=Math.hypot(p1.x-p2.x,p1.y-p2.y)*0.38*size;
+      rawP1x=p1.x; rawP1y=p1.y; rawP2x=p2.x; rawP2y=p2.y;
+      rawCx=(p1.x+p2.x)/2; rawCy=(p1.y+p2.y)/2;
+      rawRad=Math.hypot(p1.x-p2.x,p1.y-p2.y)*0.38*size;
     } else {
       const h=allHandLMs[0], pc=_hoHandPalm(h,W,H);
-      cx=pc.x; cy=pc.y;
-      radius=Math.hypot((h[0].x-h[12].x)*W,(h[0].y-h[12].y)*H)*0.65*size;
+      rawP1x=pc.x; rawP1y=pc.y; rawP2x=pc.x; rawP2y=pc.y;
+      rawCx=pc.x; rawCy=pc.y;
+      rawRad=Math.hypot((h[0].x-h[12].x)*W,(h[0].y-h[12].y)*H)*0.65*size;
     }
-    radius=Math.max(20,radius);
+    rawRad=Math.max(20,rawRad);
+
+    // ── Smooth toward target ──────────────────────────────────
+    if (this._cx===null) {
+      this._cx=rawCx; this._cy=rawCy; this._rad=rawRad;
+      this._p1x=rawP1x; this._p1y=rawP1y; this._p2x=rawP2x; this._p2y=rawP2y;
+    } else {
+      this._cx  += (rawCx   - this._cx)   * lerpF;
+      this._cy  += (rawCy   - this._cy)   * lerpF;
+      this._rad += (rawRad  - this._rad)  * lerpF;
+      this._p1x += (rawP1x  - this._p1x) * lerpF;
+      this._p1y += (rawP1y  - this._p1y) * lerpF;
+      this._p2x += (rawP2x  - this._p2x) * lerpF;
+      this._p2y += (rawP2y  - this._p2y) * lerpF;
+    }
+    const cx=this._cx, cy=this._cy, radius=this._rad;
+    const dx=this._p2x-this._p1x, dy=this._p2y-this._p1y;
+
     this._ay+=rotSpeedY*0.018; this._ax+=rotSpeedX*0.018;
     const ax=this._ax+tiltX, ay=this._ay;
     const ctx=p.drawingContext, alpha=opacity/255, col=`rgba(${r},${g},${b},${alpha})`;
-    ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col;
-    if (glow>0.01) {
-      ctx.save(); ctx.strokeStyle=`rgba(${r},${g},${b},${alpha*glow*0.4})`; ctx.lineWidth=thick*4; ctx.setLineDash([]);
-      this._drawShape(ctx,shape,style,cx,cy,radius,ax,ay,segs,r,g,b,opacity*glow*0.4,thick*4,true);
-      ctx.restore(); ctx.strokeStyle=col;
+
+    // ── Build per-object positions ────────────────────────────
+    // count objects spread along the inter-hand axis (or in a ring for 1 hand)
+    const positions = [];
+    if (count===1) {
+      positions.push({ x:cx, y:cy, rad:radius, phase:0 });
+    } else {
+      const baseRad = radius * (0.35 + 0.25/count); // shrink when many
+      for (let i=0; i<count; i++) {
+        const t = count===1 ? 0 : (i/(count-1)-0.5)*spread;
+        positions.push({
+          x: cx + dx*t,
+          y: cy + dy*t,
+          rad: baseRad,
+          phase: (i/count)*Math.PI*2,
+        });
+      }
     }
-    ctx.lineWidth=thick;
-    this._drawShape(ctx,shape,style,cx,cy,radius,ax,ay,segs,r,g,b,opacity,thick,false);
+
+    ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col;
+    for (let i=0; i<positions.length; i++) {
+      const { x:ox, y:oy, rad:orad, phase } = positions[i];
+      const oax = ax + phase*0.4;  // slight rotation offset per object
+      const oay = ay + phase*0.3;
+      if (glow>0.01) {
+        ctx.save(); ctx.strokeStyle=`rgba(${r},${g},${b},${alpha*glow*0.4})`; ctx.lineWidth=thick*4; ctx.setLineDash([]);
+        this._drawShape(ctx,shape,style,ox,oy,orad,oax,oay,segs,r,g,b,opacity*glow*0.4,thick*4,true);
+        ctx.restore(); ctx.strokeStyle=col;
+      }
+      ctx.lineWidth=thick;
+      this._drawShape(ctx,shape,style,ox,oy,orad,oax,oay,segs,r,g,b,opacity,thick,false);
+    }
     ctx.restore();
   }
   _project(verts,cx,cy,radius,ax,ay) {
