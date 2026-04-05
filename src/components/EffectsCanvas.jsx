@@ -159,6 +159,15 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
       const poseLMs    = _mirrorOne(poseResults?.landmarks?.[0] ?? null)
       const faceLMs    = allFaceLMs[0] ?? null
 
+      // Blendshapes: flatten first face's categories into {name: score} dict
+      const faceBS = (() => {
+        const cats = faceResults?.faceBlendshapes?.[0]?.categories
+        if (!cats) return null
+        const d = {}
+        for (const c of cats) d[c.categoryName] = c.score
+        return d
+      })()
+
       // Hand FX offset
       const handLMs = allHandLMs[0] ?? null
       if (handLMs && window.HAND_FX_CONTROL && !window.MOUSE_FX_CONTROL) {
@@ -290,7 +299,8 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
           effect.apply(p,
             use3d ? rotFaceLMs : allFaceLMs,
             use3d ? rotHandLMs : allHandLMs,
-            use3d ? rotPoseLMs : poseLMs)
+            use3d ? rotPoseLMs : poseLMs,
+            faceBS)
         } catch (err) { console.warn(`[${effect.label}]`, err.message ?? err) }
         ctx.globalCompositeOperation = 'source-over'
       }
@@ -299,7 +309,7 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
       for (const effect of chain) {
         if (effect.enabled === false || !isPuppet(effect)) continue
         ctx.globalCompositeOperation = effect.blendMode ?? 'source-over'
-        try { effect.apply(p, rotFaceLMs, rotHandLMs, rotPoseLMs) } catch (_) {}
+        try { effect.apply(p, rotFaceLMs, rotHandLMs, rotPoseLMs, faceBS) } catch (_) {}
         ctx.globalCompositeOperation = 'source-over'
       }
 

@@ -38,7 +38,7 @@ export function useLandmarker({ onResults }) {
       numFaces: 2,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
-      outputFaceBlendshapes: false,
+      outputFaceBlendshapes: true,
       outputFacialTransformationMatrixes: false,
     })
     if (faceRef.current) faceRef.current.close()

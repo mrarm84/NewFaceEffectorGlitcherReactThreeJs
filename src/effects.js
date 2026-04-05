@@ -1194,6 +1194,122 @@ export class FaceMeshSurface {
   }
 }
 
+// ── Reactive Wire ─────────────────────────────────────────────────────────────
+// Face tesselation wireframe that glows where landmarks are moving fastest.
+export class ReactiveWire {
+  static label    = 'Reactive Wire';
+  static category = 'DRAW';
+
+  constructor() {
+    this.label    = ReactiveWire.label;
+    this.category = ReactiveWire.category;
+    this._prevLMs = null;
+    this._vel     = new Float32Array(0);
+    this.params = {
+      baseR:       { label: 'Base R',       min: 0,    max: 255,  step: 1,    default: 0   },
+      baseG:       { label: 'Base G',       min: 0,    max: 255,  step: 1,    default: 60  },
+      baseB:       { label: 'Base B',       min: 0,    max: 255,  step: 1,    default: 160 },
+      glowR:       { label: 'Glow R',       min: 0,    max: 255,  step: 1,    default: 0   },
+      glowG:       { label: 'Glow G',       min: 0,    max: 255,  step: 1,    default: 255 },
+      glowB:       { label: 'Glow B',       min: 0,    max: 255,  step: 1,    default: 255 },
+      sensitivity: { label: 'Sensitivity',  min: 5,    max: 300,  step: 5,    default: 60  },
+      decay:       { label: 'Decay',        min: 0.05, max: 0.98, step: 0.01, default: 0.7 },
+      baseThick:   { label: 'Base Thick',   min: 0.1,  max: 4,    step: 0.1,  default: 0.5 },
+      glowThick:   { label: 'Glow Thick',   min: 0,    max: 16,   step: 0.5,  default: 5   },
+      blur:        { label: 'Glow Blur',    min: 0,    max: 30,   step: 1,    default: 8   },
+      dotSize:     { label: 'Dot Size',     min: 0,    max: 8,    step: 0.5,  default: 1.5 },
+    };
+    this.values = defaults(this.params);
+  }
+
+  apply(p, allFaceLMs) {
+    if (!allFaceLMs?.length) return;
+    const conn = window.FACE_TESSELATION;
+    if (!conn) return;
+    const W = p.width, H = p.height;
+    const v = this.values;
+    const ctx = p.drawingContext;
+
+    // Track velocity using the first face only (identity-stable)
+    const lms0 = allFaceLMs[0];
+    if (this._vel.length !== lms0.length) this._vel = new Float32Array(lms0.length);
+    if (this._prevLMs?.length === lms0.length) {
+      const decay = v.decay, sens = v.sensitivity;
+      for (let i = 0; i < lms0.length; i++) {
+        const dx = (lms0[i].x - this._prevLMs[i].x) * W;
+        const dy = (lms0[i].y - this._prevLMs[i].y) * H;
+        this._vel[i] = Math.min(1, this._vel[i] * decay + Math.hypot(dx, dy) / sens);
+      }
+    }
+    this._prevLMs = lms0.map(lm => ({ x: lm.x, y: lm.y }));
+
+    for (const landmarks of allFaceLMs) {
+      const pts = landmarks.map(lm => [lm.x * W, lm.y * H]);
+
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      // Pass 1: base dim wireframe (single batched draw call)
+      ctx.shadowBlur  = 0;
+      ctx.lineWidth   = v.baseThick;
+      ctx.strokeStyle = `rgba(${v.baseR},${v.baseG},${v.baseB},0.4)`;
+      ctx.beginPath();
+      for (const c of conn) {
+        const i = c.start ?? c[0], j = c.end ?? c[1];
+        ctx.moveTo(pts[i][0], pts[i][1]);
+        ctx.lineTo(pts[j][0], pts[j][1]);
+      }
+      ctx.stroke();
+
+      // Pass 2: velocity-reactive glow, bucketed into bands for performance
+      if (v.glowThick > 0.1) {
+        const BANDS = 5;
+        ctx.shadowColor = `rgb(${v.glowR},${v.glowG},${v.glowB})`;
+        for (let band = 1; band <= BANDS; band++) {
+          const tLo  = (band - 1) / BANDS;
+          const tHi  = band / BANDS;
+          const tMid = (tLo + tHi) / 2;
+          const r = Math.round(v.baseR + (v.glowR - v.baseR) * tMid);
+          const g = Math.round(v.baseG + (v.glowG - v.baseG) * tMid);
+          const b = Math.round(v.baseB + (v.glowB - v.baseB) * tMid);
+          ctx.shadowBlur  = v.blur * tMid;
+          ctx.lineWidth   = v.baseThick + v.glowThick * tMid;
+          ctx.strokeStyle = `rgba(${r},${g},${b},${0.3 + 0.7 * tMid})`;
+          ctx.beginPath();
+          let any = false;
+          for (const c of conn) {
+            const i = c.start ?? c[0], j = c.end ?? c[1];
+            const t = (this._vel[i] + this._vel[j]) * 0.5;
+            if (t < tLo || t >= tHi) continue;
+            ctx.moveTo(pts[i][0], pts[i][1]);
+            ctx.lineTo(pts[j][0], pts[j][1]);
+            any = true;
+          }
+          if (any) ctx.stroke();
+        }
+      }
+
+      // Dots scale up on active vertices
+      if (v.dotSize > 0.1) {
+        ctx.shadowBlur  = v.blur * 0.5;
+        ctx.shadowColor = `rgb(${v.glowR},${v.glowG},${v.glowB})`;
+        ctx.fillStyle   = `rgba(${v.glowR},${v.glowG},${v.glowB},0.85)`;
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const rad = v.dotSize * 0.5 * (0.35 + 0.65 * this._vel[i]);
+          if (rad < 0.15) continue;
+          const [x, y] = pts[i];
+          ctx.moveTo(x + rad, y);
+          ctx.arc(x, y, rad, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+}
+
 export class HandMeshSurface {
   static label    = 'Hand Mesh Surface';
   static category = 'DRAW';
@@ -3705,14 +3821,19 @@ export class LoadObject3D {
     this.params = {
       modelFile: { type: 'file', label: 'Load model file', accept: '.glb,.gltf,.fbx,.obj' },
       modelName: { type: 'select', label: 'From folder', options: ['— pick file above —'], noRandom: true },
-      scale:     { label: 'Scale',         min: 0.01, max: 5.0,  step: 0.01, default: 1.0,  noRandom: true },
-      rotX:      { label: 'Rot X (deg)',   min: -180, max: 180,  step: 1,    default: 0    },
-      rotY:      { label: 'Rot Y (deg)',   min: -180, max: 180,  step: 1,    default: 0    },
-      rotZ:      { label: 'Rot Z (deg)',   min: -180, max: 180,  step: 1,    default: 0    },
-      autoSpin:  { label: 'Auto-spin Y',   min: -3,   max: 3,    step: 0.05, default: 0    },
-      handSnap:  { label: 'Hand snap speed', min: 0.01, max: 1.0, step: 0.01, default: 0.12, noRandom: true },
-      opacity:   { label: 'Opacity',       min: 0,    max: 1,    step: 0.01, default: 1.0  },
-      wireframe: { label: 'Wireframe',     min: 0,    max: 1,    step: 1,    default: 0    },
+      scale:      { label: 'Scale',           min: 0.01, max: 5.0,  step: 0.01, default: 1.0,  noRandom: true },
+      rotX:       { label: 'Rot X (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
+      rotY:       { label: 'Rot Y (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
+      rotZ:       { label: 'Rot Z (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
+      autoSpin:   { label: 'Auto-spin Y',     min: -3,   max: 3,    step: 0.05, default: 0    },
+      headTrack:  { label: 'Head Track 0=off 1=on', min: 0, max: 1, step: 1,   default: 0,   noRandom: true },
+      yawSens:    { label: 'Yaw Sens',        min: 0.5,  max: 6.0,  step: 0.1,  default: 2.5  },
+      pitchSens:  { label: 'Pitch Sens',      min: 0.5,  max: 6.0,  step: 0.1,  default: 2.5  },
+      rollSens:   { label: 'Roll Sens',       min: 0.0,  max: 3.0,  step: 0.1,  default: 1.0  },
+      smoothing:  { label: 'Smoothing',       min: 0.0,  max: 0.95, step: 0.05, default: 0.5, noRandom: true },
+      handSnap:   { label: 'Hand snap speed', min: 0.01, max: 1.0,  step: 0.01, default: 0.12, noRandom: true },
+      opacity:    { label: 'Opacity',         min: 0,    max: 1,    step: 0.01, default: 1.0  },
+      wireframe:  { label: 'Wireframe',       min: 0,    max: 1,    step: 1,    default: 0    },
     };
     this.values = defaults(this.params);
 
@@ -3725,33 +3846,72 @@ export class LoadObject3D {
     this._offsetY   = 0;
     this._handActive = false;
     this._autoAngle  = 0;
+    this._poseSmooth = { yaw: 0, pitch: 0, roll: 0 };  // smoothed head rotation
     this._folderFiles = [];   // cached list from /api/objects
     this._folderFetched = false;
   }
 
+  // ── Compute head yaw/pitch/roll from face landmarks ────────────────────────
+  // Uses z-depth asymmetry between cheeks for yaw, eye z vs nose z for pitch,
+  // and the eye-line angle for roll.
+  _headPose(lms) {
+    const le   = lms[33];   // left eye outer corner
+    const re   = lms[263];  // right eye outer corner
+    const nt   = lms[4];    // nose tip
+    const lc   = lms[234];  // left cheek
+    const rc   = lms[454];  // right cheek
+    if (!le || !re || !nt || !lc || !rc) return { yaw: 0, pitch: 0, roll: 0 };
+
+    // Yaw: when face turns right, left cheek z rises, right cheek z falls
+    const yaw   = lc.z - rc.z;
+
+    // Pitch: nose z below eye level = looking up (negative pitch in Three.js)
+    const eyeZ  = (le.z + re.z) * 0.5;
+    const pitch = nt.z - eyeZ;
+
+    // Roll: tilt angle of the eye line
+    const roll  = Math.atan2(re.y - le.y, re.x - le.x);
+
+    return { yaw, pitch, roll };
+  }
+
   // ── Lazy Three.js init ─────────────────────────────────────────────────────
   async _initThree(W, H) {
-    let THREE, GLTFLoader, FBXLoader, OBJLoader;
+    let THREE, GLTFLoader, DRACOLoader, KTX2Loader, FBXLoader, OBJLoader, MeshoptDecoder;
     try {
-      [{ default: THREE }] = await Promise.all([import('three')]);
-      ({ GLTFLoader }  = await import('three/addons/loaders/GLTFLoader.js'));
-      ({ FBXLoader }   = await import('three/addons/loaders/FBXLoader.js'));
-      ({ OBJLoader }   = await import('three/addons/loaders/OBJLoader.js'));
+      THREE = await import('three');
+      ({ GLTFLoader }      = await import('three/addons/loaders/GLTFLoader.js'));
+      ({ DRACOLoader }     = await import('three/addons/loaders/DRACOLoader.js'));
+      ({ KTX2Loader }      = await import('three/addons/loaders/KTX2Loader.js'));
+      ({ FBXLoader }       = await import('three/addons/loaders/FBXLoader.js'));
+      ({ OBJLoader }       = await import('three/addons/loaders/OBJLoader.js'));
+      ({ MeshoptDecoder }  = await import('three/addons/libs/meshopt_decoder.module.js'));
     } catch (e) {
       this._loadError = 'Three.js failed to load: ' + e.message;
       return false;
     }
     this._THREE      = THREE;
-    this._GLTFLoader = GLTFLoader;
-    this._FBXLoader  = FBXLoader;
-    this._OBJLoader  = OBJLoader;
 
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(W, H);
     renderer.setPixelRatio(1);
     renderer.setClearColor(0x000000, 0);
 
-    const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 1000);
+    // Shared loaders
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('/draco/');
+    const ktx2 = new KTX2Loader();
+    ktx2.setTranscoderPath('/basis/');
+    ktx2.detectSupport(renderer);
+
+    this._dracoLoader     = draco;
+    this._ktx2Loader      = ktx2;
+    this._meshoptDecoder  = MeshoptDecoder;
+    this._GLTFLoader      = GLTFLoader;
+    this._FBXLoader       = FBXLoader;
+    this._OBJLoader       = OBJLoader;
+
+    const camera= new THREE.PerspectiveCamera(45, W / H, 0.01, 1000);
     camera.position.set(0, 0, 5);
 
     const scene = new THREE.Scene();
@@ -3778,6 +3938,9 @@ export class LoadObject3D {
     try {
       if (ext === '.glb' || ext === '.gltf') {
         const loader = new this._GLTFLoader();
+        if (this._dracoLoader)    loader.setDRACOLoader(this._dracoLoader);
+        if (this._ktx2Loader)     loader.setKTX2Loader(this._ktx2Loader);
+        if (this._meshoptDecoder) loader.setMeshoptDecoder(this._meshoptDecoder);
         const gltf   = await loader.loadAsync(urlOrBuffer);
         object = gltf.scene;
         if (gltf.animations?.length) {
@@ -3883,7 +4046,7 @@ export class LoadObject3D {
     const THREE = this._THREE;
     this._syncSize(W, H);
 
-    const { scale, rotX, rotY, rotZ, autoSpin, handSnap, opacity, wireframe } = this.values;
+    const { scale, rotX, rotY, rotZ, autoSpin, headTrack, yawSens, pitchSens, rollSens, smoothing, handSnap, opacity, wireframe } = this.values;
 
     // ── Compute face anchor (canvas px) ──────────────────────────────────────
     const faceLMs = allFaceLMs?.[0] ?? null;
@@ -3922,12 +4085,26 @@ export class LoadObject3D {
     if (t.model) {
       // Auto-spin around Y
       this._autoAngle += autoSpin * (1 / 60);
+
+      let rx = rotX * Math.PI / 180;
+      let ry = rotY * Math.PI / 180 + this._autoAngle;
+      let rz = rotZ * Math.PI / 180;
+
+      // Head-tracking: override rotation with smoothed face pose
+      if (headTrack >= 0.5 && faceLMs?.length) {
+        const raw  = this._headPose(faceLMs);
+        const s    = smoothing;
+        const ps   = this._poseSmooth;
+        ps.yaw   = ps.yaw   * s + raw.yaw   * (1 - s);
+        ps.pitch = ps.pitch * s + raw.pitch * (1 - s);
+        ps.roll  = ps.roll  * s + raw.roll  * (1 - s);
+        rx = rotX * Math.PI / 180 + ps.pitch * pitchSens;
+        ry = rotY * Math.PI / 180 + this._autoAngle + ps.yaw * yawSens;
+        rz = rotZ * Math.PI / 180 - ps.roll  * rollSens;
+      }
+
       t.model.position.set(wx, wy, 0);
-      t.model.rotation.set(
-        rotX * Math.PI / 180,
-        rotY * Math.PI / 180 + this._autoAngle,
-        rotZ * Math.PI / 180,
-      );
+      t.model.rotation.set(rx, ry, rz);
       t.model.scale.setScalar(modelScale);
 
       // Wireframe toggle
@@ -4077,14 +4254,261 @@ export class MorphFace {
 }
 
 
+// ════════════════════════════════════════════════════════════════════════════
+// FACE CAP FX — auto-loads facecap.glb and drives its 52 ARKit morph targets
+// directly from MediaPipe face blendshapes. Head pose drives rotation.
+// ════════════════════════════════════════════════════════════════════════════
+export class FaceCapFX {
+  static label    = 'Face Cap';
+  static category = 'FACE';
+
+  constructor() {
+    this.label    = FaceCapFX.label;
+    this.category = FaceCapFX.category;
+    this.params = {
+      scale:       { label: 'Scale',         min: 0.1,  max: 3.0,  step: 0.05, default: 1.0,  noRandom: true },
+      offsetX:     { label: 'Offset X',      min: -1.0, max: 1.0,  step: 0.05, default: 0.0  },
+      offsetY:     { label: 'Offset Y',      min: -1.0, max: 1.0,  step: 0.05, default: 0.0  },
+      rotX:        { label: 'Rot X (deg)',   min: -180, max: 180,  step: 1,    default: 0    },
+      rotY:        { label: 'Rot Y (deg)',   min: -180, max: 180,  step: 1,    default: 0    },
+      yawSens:     { label: 'Yaw Sens',      min: 0.0,  max: 6.0,  step: 0.1,  default: 2.5  },
+      pitchSens:   { label: 'Pitch Sens',    min: 0.0,  max: 6.0,  step: 0.1,  default: 2.5  },
+      rollSens:    { label: 'Roll Sens',     min: 0.0,  max: 3.0,  step: 0.1,  default: 1.0  },
+      poseSmooth:  { label: 'Pose Smooth',   min: 0.0,  max: 0.95, step: 0.05, default: 0.6,  noRandom: true },
+      morphScale:  { label: 'Morph Scale',   min: 0.0,  max: 3.0,  step: 0.05, default: 1.5  },
+      exprBoost:   { label: 'Expr Boost',    min: 0.5,  max: 3.0,  step: 0.1,  default: 1.4  },
+      morphSmooth: { label: 'Morph Smooth',  min: 0.0,  max: 0.95, step: 0.05, default: 0.2,  noRandom: true },
+      opacity:     { label: 'Opacity',       min: 0,    max: 1,    step: 0.01, default: 1.0  },
+      wireframe:   { label: 'Wireframe',     min: 0,    max: 1,    step: 1,    default: 0    },
+      showBS:      { label: 'Show Blendshapes', min: 0, max: 1,    step: 1,    default: 0,    noRandom: true },
+    };
+    this.values = defaults(this.params);
+
+    this._three      = null;
+    this._offCanvas  = null;
+    this._THREE      = null;
+    this._loading    = false;
+    this._loadError  = null;
+    this._mesh       = null;   // the mesh with morphTargetInfluences
+    this._morphDict  = null;   // morphTargetDictionary {name: index}
+    this._poseSmooth = { yaw: 0, pitch: 0, roll: 0 };
+    this._morphCurr  = {};     // smoothed morph target values
+  }
+
+  _headPose(lms) {
+    const le = lms[33], re = lms[263], nt = lms[4], lc = lms[234], rc = lms[454];
+    if (!le || !re || !nt || !lc || !rc) return { yaw: 0, pitch: 0, roll: 0 };
+    return {
+      yaw:   lc.z - rc.z,
+      pitch: nt.z - (le.z + re.z) * 0.5,
+      roll:  Math.atan2(re.y - le.y, re.x - le.x),
+    };
+  }
+
+  async _init(W, H) {
+    let THREE, GLTFLoader, DRACOLoader, KTX2Loader, MeshoptDecoder;
+    try {
+      THREE = await import('three');
+      ({ GLTFLoader }     = await import('three/addons/loaders/GLTFLoader.js'));
+      ({ DRACOLoader }    = await import('three/addons/loaders/DRACOLoader.js'));
+      ({ KTX2Loader }     = await import('three/addons/loaders/KTX2Loader.js'));
+      ({ MeshoptDecoder } = await import('three/addons/libs/meshopt_decoder.module.js'));
+    } catch (e) { this._loadError = 'Three.js import failed: ' + e.message; return; }
+
+    // Renderer must exist before KTX2Loader (needs a GL context)
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(W, H);
+      renderer.setPixelRatio(1);
+      renderer.setClearColor(0x000000, 0);
+    } catch (e) { this._loadError = 'WebGL: ' + e.message; return; }
+
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('/draco/');
+    const ktx2 = new KTX2Loader();
+    ktx2.setTranscoderPath('/basis/');
+    ktx2.detectSupport(renderer);
+
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(draco);
+    loader.setKTX2Loader(ktx2);
+    loader.setMeshoptDecoder(MeshoptDecoder);
+
+    let gltf;
+    try { gltf = await loader.loadAsync('/models/objects/facecap.glb'); }
+    catch (e) { this._loadError = 'facecap.glb: ' + e.message; return; }
+
+    try {
+      const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 1000);
+      camera.position.set(0, 0, 5);
+
+      const scene = new THREE.Scene();
+      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+      dir.position.set(1, 2, 3);
+      scene.add(dir);
+
+      // Find the mesh with morph targets
+      let morphMesh = null;
+      gltf.scene.traverse(child => {
+        if (child.isMesh && child.morphTargetInfluences?.length && !morphMesh) morphMesh = child;
+      });
+
+      // Auto-scale and centre
+      const box    = new THREE.Box3().setFromObject(gltf.scene);
+      const size   = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim > 0) gltf.scene.scale.setScalar(1 / maxDim);
+      const centre = box.getCenter(new THREE.Vector3());
+      gltf.scene.position.sub(centre.divideScalar(maxDim));
+
+      scene.add(gltf.scene);
+      this._offCanvas = renderer.domElement;
+      this._three     = { renderer, scene, camera, model: gltf.scene };
+      this._THREE     = THREE;
+      this._mesh      = morphMesh;
+      this._morphDict = morphMesh?.morphTargetDictionary ?? null;
+    } catch (e) { this._loadError = 'scene: ' + e.message; renderer?.dispose?.(); }
+  }
+
+  _syncSize(W, H) {
+    const t = this._three;
+    if (!t) return;
+    if (this._offCanvas.width !== W || this._offCanvas.height !== H) {
+      t.renderer.setSize(W, H);
+      t.camera.aspect = W / H;
+      t.camera.updateProjectionMatrix();
+    }
+  }
+
+  apply(p, allFaceLMs, _hand, _pose, faceBS) {
+    const ctx = p.drawingContext;
+    const W = p.width, H = p.height;
+
+    if (!this._three && !this._loading && !this._loadError) {
+      this._loading = true;
+      this._init(W, H)
+        .then(() => { this._loading = false; })
+        .catch(e => { this._loading = false; this._loadError = 'init: ' + (e?.message ?? e); });
+    }
+    if (this._loadError) {
+      ctx.save(); ctx.fillStyle = 'rgba(255,80,80,0.85)'; ctx.font = '11px monospace';
+      ctx.fillText('FaceCap: ' + this._loadError, 10, H - 20); ctx.restore();
+      return;
+    }
+    if (!this._three) {
+      ctx.save(); ctx.fillStyle = 'rgba(80,160,255,0.7)'; ctx.font = '12px monospace';
+      ctx.fillText('Face Cap: loading…', 10, H - 20); ctx.restore();
+      return;
+    }
+
+    const t = this._three;
+    this._syncSize(W, H);
+
+    const { scale, offsetX, offsetY, rotX, rotY,
+            yawSens, pitchSens, rollSens, poseSmooth,
+            morphScale, exprBoost, morphSmooth, opacity, wireframe, showBS } = this.values;
+
+    // Face anchor
+    const faceLMs = allFaceLMs?.[0] ?? null;
+    let faceX = W * 0.5, faceY = H * 0.38, faceSize = H * 0.22;
+    if (faceLMs?.length) {
+      let cx = 0, cy = 0;
+      for (const lm of faceLMs) { cx += lm.x; cy += lm.y; }
+      faceX = (cx / faceLMs.length) * W + offsetX * W * 0.5;
+      faceY = (cy / faceLMs.length) * H + offsetY * H * 0.5;
+      const top = faceLMs[10], bot = faceLMs[152];
+      if (top && bot) faceSize = Math.abs(bot.y - top.y) * H * 1.2;
+    }
+
+    // Face position → Three.js world coords
+    const camH = 2 * Math.tan((45 / 2) * Math.PI / 180) * t.camera.position.z;
+    const camW = camH * (W / H);
+    const wx = (faceX / W - 0.5) *  camW;
+    const wy = (faceY / H - 0.5) * -camH;
+    const mScale = (faceSize / H) * camH * scale;
+
+    // Smoothed head pose
+    let rx = Math.PI + rotX * Math.PI / 180, ry = rotY * Math.PI / 180, rz = 0;
+    if (faceLMs?.length) {
+      const raw = this._headPose(faceLMs);
+      const s = poseSmooth, ps = this._poseSmooth;
+      ps.yaw   = ps.yaw   * s + raw.yaw   * (1 - s);
+      ps.pitch = ps.pitch * s + raw.pitch * (1 - s);
+      ps.roll  = ps.roll  * s + raw.roll  * (1 - s);
+      rx += ps.pitch * pitchSens;
+      ry += ps.yaw   * yawSens;
+      rz  = -ps.roll  * rollSens;
+    }
+
+    if (t.model) {
+      t.model.position.set(wx, wy, 0);
+      t.model.rotation.set(rx, ry, rz);
+      t.model.scale.setScalar(mScale);
+      const wf = wireframe >= 0.5;
+      t.model.traverse(child => {
+        if (child.isMesh && child.material) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(m => { if ('wireframe' in m) m.wireframe = wf; });
+        }
+      });
+    }
+
+    // Drive morph targets from MediaPipe blendshapes (1-to-1 ARKit name match)
+    if (this._mesh && this._morphDict && faceBS) {
+      const infl = this._mesh.morphTargetInfluences;
+      const ms   = morphSmooth;
+      for (const [name, idx] of Object.entries(this._morphDict)) {
+        if (name === '_neutral') continue; // neutral suppresses expressions, skip it
+        const raw    = faceBS[name] ?? 0;
+        // power-curve boost: amplifies mid-range expressions (smile, brows) more
+        const boosted = raw > 0 ? Math.min(1, Math.pow(raw, 1 / exprBoost)) * morphScale : 0;
+        const prev    = this._morphCurr[name] ?? 0;
+        const val     = prev * ms + boosted * (1 - ms);
+        this._morphCurr[name] = val;
+        infl[idx] = Math.min(1, Math.max(0, val));
+      }
+    }
+
+    t.renderer.render(t.scene, t.camera);
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(this._offCanvas, 0, 0);
+    ctx.restore();
+
+    // Debug blendshape overlay
+    if (showBS >= 0.5 && faceBS) {
+      const sorted = Object.entries(faceBS)
+        .filter(([n]) => n !== '_neutral')
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12);
+      ctx.save();
+      ctx.font = '11px monospace';
+      sorted.forEach(([name, score], i) => {
+        const y = 20 + i * 14;
+        const barW = score * 120;
+        ctx.fillStyle = `rgba(0,0,0,0.55)`;
+        ctx.fillRect(8, y - 11, 240, 13);
+        ctx.fillStyle = score > 0.3 ? '#0f0' : '#888';
+        ctx.fillRect(8, y - 11, barW, 13);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`${name.padEnd(28)} ${score.toFixed(2)}`, 10, y);
+      });
+      ctx.restore();
+    }
+  }
+}
+
+
 export const EFFECT_REGISTRY = [
   LayerMerger,
   TextOverlay, MagnifyGlass,
   PuppetFX, PuppetModel,
-  LoadObject3D,
+  LoadObject3D, FaceCapFX,
   MorphFace, CutHead, Orbits3D, FillEyesFX, DevilFX,
   HeadGrid, Wireframe, LandmarkDots, LandmarkNormals, VertexJitter,
-  FaceMeshSurface,
+  FaceMeshSurface, ReactiveWire,
   HandWireframe, HandFingernailDots, HandMeshSurface, HandObject,
   PoseSkeleton, PoseGlitch,
   TileGlitch, GlitchLines, ChromaticAberration,
