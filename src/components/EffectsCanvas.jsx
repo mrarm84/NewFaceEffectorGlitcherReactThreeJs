@@ -82,9 +82,9 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
         if (el) el.textContent = `FPS: ${fps.toFixed(1)}`
       }
 
-      const outFps = window.OUTPUT_FPS ?? 9999
+      const outFps = window.OUTPUT_FPS ?? 240
       // 0 = unlimited (run every RAF frame)
-      const outLimited = outFps > 0 && outFps < 9999
+      const outLimited = outFps > 0 && outFps <= 240
       const ctx    = canvas.getContext('2d')
 
       // Frame buffer playback
@@ -127,9 +127,9 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
       const skipEffects = window.FAST_MODE && (frameCount.current % 2 === 0)
 
       // Input FPS limiter
-      const inFps = window.INPUT_FPS ?? 9999
+      const inFps = Math.min(window.INPUT_FPS ?? 240, 240)
       const inputReady = video.currentTime !== lastVideoTime.current &&
-        (inFps >= 9999 || nowMs - lastInputMs.current >= 1000 / inFps)
+        (nowMs - lastInputMs.current >= 1000 / inFps)
       if (inputReady) { lastVideoTime.current = video.currentTime; lastInputMs.current = nowMs }
 
       // Landmarks

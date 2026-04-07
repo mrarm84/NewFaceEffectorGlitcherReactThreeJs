@@ -419,7 +419,7 @@ export default function Panel({
 
   // Audio
   const [audioReact, setAudioReact] = useState(false)
-  const [audioSens,  setAudioSens]  = useState(30)
+  const [audioSens,  setAudioSens]  = useState(20)
 
   // Movie overlays
   const [ovVersion, setOvVersion] = useState(0)
@@ -444,7 +444,7 @@ export default function Panel({
     window.MOUSE_FX_CONTROL = false; window.FX_OFFSET = { x: 0, y: 0 }
     window.HAND_FX_SENSITIVITY = 1.5; window.GLOBAL_ROT_SPEED = 0
     window.ANIM_SPEED = 1.0; window.AUDIO_REACT = false
-    window.AUDIO_SENSITIVITY = 30; window.MIN_DETECT_CONF = 0.5
+    window.AUDIO_SENSITIVITY = 20; window.MIN_DETECT_CONF = 0.5
     window.RES_SCALE = 1.0; window.MOVIE_OVERLAYS = []; window._OVERLAY_SELECTED = -1
     window.WHITE_MASK_MODE = false; window.WHITE_MASK_THRESHOLD = 185
   }, [])
@@ -1076,10 +1076,10 @@ export default function Panel({
         </div>
         <div className="field-group">
           <label className="field-label">Input FPS {fpsLabel(inputFps)}</label>
-          <input type="range" min="1" max="9999" step="1" value={inputFps}
+          <input type="range" min="1" max="240" step="1" value={inputFps}
             onChange={e => { const v = parseFloat(e.target.value); window.INPUT_FPS = v; setInputFps(v) }} />
           <label className="field-label">Output FPS {fpsLabel(outputFps)}</label>
-          <input type="range" min="1" max="9999" step="1" value={outputFps}
+          <input type="range" min="1" max="240" step="1" value={outputFps}
             onChange={e => { const v = parseFloat(e.target.value); window.OUTPUT_FPS = v; setOutputFps(v) }} />
         </div>
         <div className="field-group">
@@ -1121,12 +1121,15 @@ export default function Panel({
             freqDataRef={audioHook?.freqDataRef}
             isActive={audioHook?.isActive}
           />
+          <div className="audio-level-wrap" style={{ marginTop: 4, height: 4, opacity: audioReact ? 1 : 0.3 }}>
+            <div id="audio-level-bar" className="audio-level-bar" />
+          </div>
         </div>
         {audioReact && (
           <>
             <div className="field-group">
               <label className="field-label">Sensitivity {audioSens}</label>
-              <input type="range" min="1" max="128" step="1" value={audioSens}
+              <input type="range" min="1" max="100" step="1" value={audioSens}
                 onChange={e => { const v = parseInt(e.target.value); window.AUDIO_SENSITIVITY = v; setAudioSens(v) }} />
             </div>
             <div className="hint">On beat: nudges params of all enabled effects.</div>
