@@ -781,6 +781,48 @@ export class Scanlines {
   }
 }
 
+export class PipeFX {
+  static label    = 'Pipe FX';
+  static category = 'DRAW';
+  constructor() {
+    this.label    = PipeFX.label;
+    this.category = PipeFX.category;
+    this.params = {
+      mode:      { label: 'Mode (0=hand 1=mouth)', min:0, max:1, step:1, default:0 },
+      thickness: { label: 'Thickness', min:0.5, max:10, step:0.5, default:4 },
+      r:         { label: 'Color R', min:0, max:255, step:1, default:200 },
+      g:         { label: 'Color G', min:0, max:255, step:1, default:200 },
+      b:         { label: 'Color B', min:0, max:255, step:1, default:200 },
+      opacity:   { label: 'Opacity', min:0, max:255, step:1, default:200 },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, allFaceLMs, allHandLMs) {
+    const { mode, thickness, r, g, b, opacity } = this.values;
+    const m = Math.round(mode);
+    p.push();
+    p.stroke(r, g, b, opacity);
+    p.strokeWeight(thickness);
+    p.noFill();
+    if (m === 0 && allHandLMs?.length) {
+      // draw pipe between wrist (0) and index tip (8)
+      const hand = allHandLMs[0];
+      const start = hand[0];
+      const end = hand[8] || hand[4];
+      p.line(start.x * p.width, start.y * p.height, end.x * p.width, end.y * p.height);
+    } else if (m === 1 && allFaceLMs?.length) {
+      // use mouth outer landmarks 61 and 146 as ends
+      const face = allFaceLMs[0];
+      const a = face[61];
+      const bpt = face[146];
+      if (a && bpt) {
+        p.line(a.x * p.width, a.y * p.height, bpt.x * p.width, bpt.y * p.height);
+      }
+    }
+    p.pop();
+  }
+}
+
 export class NoiseEffect {
   static label    = 'Noise';
   static category = 'PIXEL';
@@ -1432,6 +1474,8 @@ const _HO_SHAPES = (() => {
   const φ = _HO_PHI, s3 = Math.sqrt(3);
   const triV = _hoNormVerts([[0,-1,0],[s3/2,0.5,0],[-s3/2,0.5,0]]);
   const triE = [[0,1],[1,2],[2,0]], triF = [[0,1,2]];
+  const tetRaw = [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]];
+  const tetV = _hoNormVerts(tetRaw), tetE = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]], tetF = [[0,1,2],[0,1,3],[0,2,3],[1,2,3]];
   const boxRaw = [[-1,-1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1],[-1,-1,1],[1,-1,1],[-1,1,1],[1,1,1]];
   const boxV = _hoNormVerts(boxRaw);
   const boxE = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
@@ -1544,7 +1588,7 @@ export class HandObject {
     this._p1x = null; this._p1y = null; this._p2x = null; this._p2y = null;
     this.params = {
       shape:    { label: 'Shape',     type: 'select', default: 'box', options: [
-        ['triangle','Triangle'],['box','Box (Cube)'],['sphere','Sphere'],
+        ['triangle','Triangle'],['tetrahedron','Tetrahedron'],['box','Box (Cube)'],['sphere','Sphere'],
         ['icosahedron','Icosahedron'],['dodecahedron','Dodecahedron'],
         ['shell','Shell Spiral'],['golden','Golden Ratio'],
       ]},
@@ -1552,6 +1596,7 @@ export class HandObject {
         ['wireframe','Wireframe'],['solid','Solid'],['dotted','Dotted'],['striped','Striped'],['lines','Lines'],
       ]},
       count:     { label: 'Count',     min:1,   max:7,   step:1,    default:1   },
+      repeat:    { label: 'Repeat',    min:1,   max:5,   step:1,    default:1   },
       smooth:    { label: 'Smooth',    min:0,   max:0.97,step:0.01, default:0.82 },
       spread:    { label: 'Spread',    min:0,   max:1.5, step:0.05, default:0.85 },
       r:         { label: 'Color R',   min:0,   max:255, step:1,    default:80  },
@@ -1684,22 +1729,156 @@ export class HandObject {
     if (shape==='golden') { _hoGoldenRect(ctx,cx,cy,radius,radius,ax,ay,8); return; }
     let geomData;
     if (shape==='triangle')      geomData={verts:_HO_SHAPES.triV,edges:_HO_SHAPES.triE,faces:_HO_SHAPES.triF};
+    else if (shape==='tetrahedron') geomData={verts:_HO_SHAPES.tetV,edges:_HO_SHAPES.tetE,faces:_HO_SHAPES.tetF};
     else if (shape==='box')      geomData={verts:_HO_SHAPES.boxV,edges:_HO_SHAPES.boxE,faces:_HO_SHAPES.boxF};
     else if (shape==='icosahedron') geomData={verts:_HO_SHAPES.icoV,edges:_HO_SHAPES.icoE,faces:_HO_SHAPES.icoF};
     else                         geomData={verts:_HO_SHAPES.dodV,edges:_HO_SHAPES.dodE,faces:null};
-    const proj=this._project(geomData.verts,cx,cy,radius,ax,ay);
-    if (style==='solid'&&geomData.faces&&!glowPass) _hoDrawFaces(ctx,proj,geomData.faces,r,g,b,opacity,true);
-    if (style!=='solid'||!geomData.faces) {
-      _hoDrawEdges(ctx,proj,geomData.edges,style,thick);
-    } else {
-      ctx.strokeStyle=`rgba(${r},${g},${b},${alpha*0.5})`; ctx.lineWidth=Math.max(0.5,thick*0.4); ctx.setLineDash([]); ctx.beginPath();
-      for (const [a,bb] of geomData.edges) { ctx.moveTo(proj[a][0],proj[a][1]); ctx.lineTo(proj[bb][0],proj[bb][1]); }
-      ctx.stroke();
+    
+    const repeat = Math.round(this.values.repeat ?? 1);
+    for (let rpt=0; rpt<repeat; rpt++) {
+      const curRad = radius * Math.pow(0.7, rpt);
+      const proj=this._project(geomData.verts,cx,cy,curRad,ax + rpt*0.2,ay + rpt*0.2);
+      if (style==='solid'&&geomData.faces&&!glowPass) _hoDrawFaces(ctx,proj,geomData.faces,r,g,b,opacity,true);
+      if (style!=='solid'||!geomData.faces) {
+        _hoDrawEdges(ctx,proj,geomData.edges,style,thick);
+      } else {
+        ctx.strokeStyle=`rgba(${r},${g},${b},${alpha*0.5})`; ctx.lineWidth=Math.max(0.5,thick*0.4); ctx.setLineDash([]); ctx.beginPath();
+        for (const [a,bb] of geomData.edges) { ctx.moveTo(proj[a][0],proj[a][1]); ctx.lineTo(proj[bb][0],proj[bb][1]); }
+        ctx.stroke();
+      }
+      if (style==='dotted'&&!glowPass) {
+        ctx.setLineDash([]); ctx.fillStyle=`rgba(${r},${g},${b},${alpha})`; ctx.beginPath();
+        for (const [px,py] of proj) { ctx.moveTo(px+thick,py); ctx.arc(px,py,thick*0.8,0,Math.PI*2); }
+        ctx.fill();
+      }
     }
-    if (style==='dotted'&&!glowPass) {
-      ctx.setLineDash([]); ctx.fillStyle=`rgba(${r},${g},${b},${alpha})`; ctx.beginPath();
-      for (const [px,py] of proj) { ctx.moveTo(px+thick,py); ctx.arc(px,py,thick*0.8,0,Math.PI*2); }
-      ctx.fill();
+  }
+}
+
+export class HeadObject {
+  static label    = 'Head Object';
+  static category = 'DRAW';
+  constructor() {
+    this.label    = HeadObject.label;
+    this.category = HeadObject.category;
+    this._ax = 0.4;
+    this._ay = 0;
+    this._cx = null; this._cy = null; this._rad = null;
+    this.params = {
+      shape:    { label: 'Shape',     type: 'select', default: 'box', options: [
+        ['triangle','Triangle'],['tetrahedron','Tetrahedron'],['box','Box (Cube)'],['sphere','Sphere'],
+        ['icosahedron','Icosahedron'],['dodecahedron','Dodecahedron'],
+        ['shell','Shell Spiral'],['golden','Golden Ratio'],
+      ]},
+      style:    { label: 'Style',     type: 'select', default: 'wireframe', options: [
+        ['wireframe','Wireframe'],['solid','Solid'],['dotted','Dotted'],['striped','Striped'],['lines','Lines'],
+      ]},
+      count:     { label: 'Count',     min:1,   max:12,  step:1,    default:1   },
+      repeat:    { label: 'Repeat',    min:1,   max:5,   step:1,    default:1   },
+      smooth:    { label: 'Smooth',    min:0,   max:0.97,step:0.01, default:0.82 },
+      spread:    { label: 'Spread',    min:0,   max:2.0, step:0.05, default:0.85 },
+      r:         { label: 'Color R',   min:0,   max:255, step:1,    default:0   },
+      g:         { label: 'Color G',   min:0,   max:255, step:1,    default:220 },
+      b:         { label: 'Color B',   min:0,   max:255, step:1,    default:80  },
+      opacity:   { label: 'Opacity',   min:0,   max:255, step:1,    default:210 },
+      size:      { label: 'Size',      min:0.1, max:4,   step:0.05, default:1.2 },
+      thick:     { label: 'Thickness', min:0.5, max:8,   step:0.5,  default:1.5 },
+      rotSpeedY: { label: 'Rot Y',     min:-4,  max:4,   step:0.05, default:0.5 },
+      rotSpeedX: { label: 'Rot X',     min:-4,  max:4,   step:0.05, default:0.1 },
+      tiltX:     { label: 'Tilt X',    min:-3.14,max:3.14,step:0.05,default:0.4 },
+      segs:      { label: 'Segments',  min:4,   max:24,  step:1,    default:10  },
+      glow:      { label: 'Glow',      min:0,   max:1,   step:0.05, default:0.3 },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, allFaceLMs) {
+    if (!allFaceLMs?.length) return;
+    const { r, g, b, opacity, size, thick, rotSpeedY, rotSpeedX, tiltX, segs, glow } = this.values;
+    const shape = this.values.shape, style = this.values.style;
+    const count = Math.round(this.values.count);
+    const smooth = this.values.smooth;
+    const spread = this.values.spread;
+    const W = p.width, H = p.height;
+    const lerpF = 1 - smooth;
+
+    const lms = allFaceLMs[0];
+    let minX=1, maxX=0, minY=1, maxY=0;
+    for (const lm of lms) {
+      if(lm.x<minX) minX=lm.x; if(lm.x>maxX) maxX=lm.x;
+      if(lm.y<minY) minY=lm.y; if(lm.y>maxY) maxY=lm.y;
+    }
+    const rawCx = (minX+maxX)/2 * W, rawCy = (minY+maxY)/2 * H;
+    const rawRad = Math.max((maxX-minX)*W, (maxY-minY)*H) * 0.5 * size;
+
+    if (this._cx===null) { this._cx=rawCx; this._cy=rawCy; this._rad=rawRad; }
+    else {
+      this._cx += (rawCx - this._cx) * lerpF;
+      this._cy += (rawCy - this._cy) * lerpF;
+      this._rad += (rawRad - this._rad) * lerpF;
+    }
+    const cx=this._cx, cy=this._cy, radius=this._rad;
+
+    this._ay+=rotSpeedY*0.018; this._ax+=rotSpeedX*0.018;
+    const ax=this._ax+tiltX, ay=this._ay;
+    const ctx=p.drawingContext;
+
+    ctx.save();
+    for (let i=0; i<count; i++) {
+      const a = (i/count)*Math.PI*2;
+      const ox = cx + Math.cos(a) * radius * (count===1?0:spread);
+      const oy = cy + Math.sin(a) * radius * (count===1?0:spread);
+      const oax = ax + i*0.2, oay = ay + i*0.1;
+      
+      if (glow>0.01) {
+        ctx.save(); ctx.strokeStyle=`rgba(${r},${g},${b},${opacity/255*glow*0.4})`; ctx.lineWidth=thick*4;
+        this._drawShape(ctx,shape,style,ox,oy,radius,oax,oay,segs,r,g,b,opacity*glow*0.4,thick*4,true);
+        ctx.restore();
+      }
+      this._drawShape(ctx,shape,style,ox,oy,radius,oax,oay,segs,r,g,b,opacity,thick,false);
+    }
+    ctx.restore();
+  }
+  _project(verts,cx,cy,radius,ax,ay) {
+    return verts.map(([x,y,z])=>{ const [rx,ry,rz]=_hoRot(x,y,z,ax,ay); return [cx+rx*radius,cy+ry*radius,rz]; });
+  }
+  _drawShape(ctx,shape,style,cx,cy,radius,ax,ay,segs,r,g,b,opacity,thick,glowPass) {
+    const alpha=opacity/255;
+    ctx.strokeStyle=`rgba(${r},${g},${b},${alpha})`; ctx.fillStyle=`rgba(${r},${g},${b},${alpha})`;
+    if (shape==='sphere') {
+      const repeat = Math.round(this.values.repeat ?? 1);
+      for(let rpt=0; rpt<repeat; rpt++) {
+        const curRad = radius * Math.pow(0.7, rpt);
+        ctx.lineWidth=thick; _hoSphereLines(cx,cy,curRad,ax+rpt*0.2,ay+rpt*0.2,ctx,Math.round(segs));
+      }
+      return;
+    }
+    if (shape==='shell' || shape==='golden') {
+       // ... simplified for brevity or use existing helpers
+       if(shape==='shell') {
+         const pts=_hoShellPoints(3,Math.round(segs)*12), proj=this._project(pts,cx,cy,radius,ax,ay);
+         ctx.lineWidth=thick; ctx.beginPath(); proj.forEach(([px,py],i)=>{ if(i===0)ctx.moveTo(px,py); else ctx.lineTo(px,py); }); ctx.stroke();
+       } else { _hoGoldenRect(ctx,cx,cy,radius,radius,ax,ay,8); }
+       return;
+    }
+    let geomData;
+    if (shape==='triangle')      geomData={verts:_HO_SHAPES.triV,edges:_HO_SHAPES.triE,faces:_HO_SHAPES.triF};
+    else if (shape==='tetrahedron') geomData={verts:_HO_SHAPES.tetV,edges:_HO_SHAPES.tetE,faces:_HO_SHAPES.tetF};
+    else if (shape==='box')      geomData={verts:_HO_SHAPES.boxV,edges:_HO_SHAPES.boxE,faces:_HO_SHAPES.boxF};
+    else if (shape==='icosahedron') geomData={verts:_HO_SHAPES.icoV,edges:_HO_SHAPES.icoE,faces:_HO_SHAPES.icoF};
+    else                         geomData={verts:_HO_SHAPES.dodV,edges:_HO_SHAPES.dodE,faces:null};
+    
+    const repeat = Math.round(this.values.repeat ?? 1);
+    for (let rpt=0; rpt<repeat; rpt++) {
+      const curRad = radius * Math.pow(0.7, rpt);
+      const proj=this._project(geomData.verts,cx,cy,curRad,ax + rpt*0.2,ay + rpt*0.2);
+      if (style==='solid'&&geomData.faces&&!glowPass) _hoDrawFaces(ctx,proj,geomData.faces,r,g,b,opacity,true);
+      if (style!=='solid'||!geomData.faces) {
+        _hoDrawEdges(ctx,proj,geomData.edges,style,thick);
+      } else {
+        ctx.strokeStyle=`rgba(${r},${g},${b},${alpha*0.5})`; ctx.lineWidth=Math.max(0.5,thick*0.4); ctx.beginPath();
+        for (const [a,bb] of geomData.edges) { ctx.moveTo(proj[a][0],proj[a][1]); ctx.lineTo(proj[bb][0],proj[bb][1]); }
+        ctx.stroke();
+      }
     }
   }
 }
