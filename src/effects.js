@@ -3987,7 +3987,7 @@ export class DevilFX {
 // ════════════════════════════════════════════════════════════════════════════
 // LOAD OBJECT 3D — renders a GLB/GLTF/FBX/OBJ file via Three.js
 // • Anchored to the face centroid; hand controls the offset (stays on release)
-// • Offscreen WebGL canvas composited onto the main p5 canvas each frame
+// • Offscreen WebGPU canvas composited onto the main p5 canvas each frame
 // ════════════════════════════════════════════════════════════════════════════
 
 export class LoadObject3D {
@@ -4058,7 +4058,7 @@ export class LoadObject3D {
   async _initThree(W, H) {
     let THREE, GLTFLoader, DRACOLoader, KTX2Loader, FBXLoader, OBJLoader, MeshoptDecoder;
     try {
-      THREE = await import('three');
+      THREE = await import('three/webgpu');
       ({ GLTFLoader }      = await import('three/addons/loaders/GLTFLoader.js'));
       ({ DRACOLoader }     = await import('three/addons/loaders/DRACOLoader.js'));
       ({ KTX2Loader }      = await import('three/addons/loaders/KTX2Loader.js'));
@@ -4071,7 +4071,13 @@ export class LoadObject3D {
     }
     this._THREE      = THREE;
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGPURenderer({ alpha: true, antialias: true });
+    try {
+      await renderer.init();
+    } catch (e) {
+      this._loadError = 'WebGPU not supported: ' + e.message;
+      return false;
+    }
     renderer.setSize(W, H);
     renderer.setPixelRatio(1);
     renderer.setClearColor(0x000000, 0);
@@ -4487,21 +4493,22 @@ export class FaceCapFX {
   async _init(W, H) {
     let THREE, GLTFLoader, DRACOLoader, KTX2Loader, MeshoptDecoder;
     try {
-      THREE = await import('three');
+      THREE = await import('three/webgpu');
       ({ GLTFLoader }     = await import('three/addons/loaders/GLTFLoader.js'));
       ({ DRACOLoader }    = await import('three/addons/loaders/DRACOLoader.js'));
       ({ KTX2Loader }     = await import('three/addons/loaders/KTX2Loader.js'));
       ({ MeshoptDecoder } = await import('three/addons/libs/meshopt_decoder.module.js'));
     } catch (e) { this._loadError = 'Three.js import failed: ' + e.message; return; }
 
-    // Renderer must exist before KTX2Loader (needs a GL context)
+    // Renderer must exist before KTX2Loader
     let renderer;
     try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+      renderer = new THREE.WebGPURenderer({ alpha: true, antialias: true });
+      await renderer.init();
       renderer.setSize(W, H);
       renderer.setPixelRatio(1);
       renderer.setClearColor(0x000000, 0);
-    } catch (e) { this._loadError = 'WebGL: ' + e.message; return; }
+    } catch (e) { this._loadError = 'WebGPU: ' + e.message; return; }
 
     const draco = new DRACOLoader();
     draco.setDecoderPath('/draco/');
