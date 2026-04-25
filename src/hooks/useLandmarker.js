@@ -120,17 +120,21 @@ export function useLandmarker({ onResults }) {
         let handResults = null
         let poseResults = null
 
-        if (faceRef.current) {
-          try { faceResults = faceRef.current.detectForVideo(video, nowMs) } catch (_) {}
-        }
-        if (handRef.current) {
-          try { handResults = handRef.current.detectForVideo(video, nowMs) } catch (_) {}
-        }
-        if (poseRef.current) {
-          try { poseResults = poseRef.current.detectForVideo(video, nowMs) } catch (_) {}
-        }
+        if (window.DISABLE_MEDIAPIPE) {
+          onResultsRef.current({ faceResults, handResults, poseResults })
+        } else {
+          if (faceRef.current) {
+            try { faceResults = faceRef.current.detectForVideo(video, nowMs) } catch (_) {}
+          }
+          if (handRef.current) {
+            try { handResults = handRef.current.detectForVideo(video, nowMs) } catch (_) {}
+          }
+          if (poseRef.current) {
+            try { poseResults = poseRef.current.detectForVideo(video, nowMs) } catch (_) {}
+          }
 
-        onResultsRef.current({ faceResults, handResults, poseResults })
+          onResultsRef.current({ faceResults, handResults, poseResults })
+        }
       }
 
       rafRef.current = requestAnimationFrame(detect)

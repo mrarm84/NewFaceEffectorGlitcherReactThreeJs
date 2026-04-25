@@ -112,12 +112,12 @@ function SceneContent({ glbUrl, landmarkRef }) {
 }
 
 // ── Public component ──────────────────────────────────────────────────────────
-export default function ThreeScene({ glbUrl = null, landmarkRef, showStats = false }) {
+export default function ThreeScene({ glbUrl = null, landmarkRef, showStats = false, bgColor = '#666' }) {
   return (
     <Canvas
       camera={{ position: [-1.8, 0.8, 3], fov: 45, near: 1, far: 20 }}
-      gl={{ toneMapping: THREE.ACESFilmicToneMapping, antialias: true }}
-      style={{ background: '#666' }}
+      gl={{ toneMapping: THREE.ACESFilmicToneMapping, antialias: true, preserveDrawingBuffer: true }}
+      style={{ background: bgColor }}
     >
       <SceneContent glbUrl={glbUrl} landmarkRef={landmarkRef} />
       {showStats && <Stats />}

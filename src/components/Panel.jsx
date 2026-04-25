@@ -121,6 +121,15 @@ function defaults(params) {
 
 function randomizeEffect(effect) {
   if (effect.locked) return
+  
+  // Randomize blend mode (90% chance to be Normal, 10% chance to be something else)
+  if (Math.random() > 0.9) {
+    const bm = BLEND_MODES[Math.floor(Math.random() * BLEND_MODES.length)][0]
+    effect.blendMode = bm
+  } else {
+    effect.blendMode = 'source-over'
+  }
+
   for (const [key, def] of Object.entries(effect.params)) {
     if (effect._sinePinned?.[key]) continue
     if (def.type === 'select' || def.type === 'text' || def.type === 'file' || def.noRandom) continue
@@ -135,6 +144,22 @@ function randomizeEffect(effect) {
       newVal = parseFloat((def.min + Math.round(Math.random() * steps) * def.step).toFixed(6))
     }
     effect.values[key] = newVal
+  }
+}
+
+function shuffleEffects(chain, setIdx) {
+  for (let i = 0; i < chain.length; i++) {
+    if (chain[i].locked) continue
+    // 30% chance to replace the effect with a random one from registry
+    if (Math.random() < 0.3) {
+      const EC = EFFECT_REGISTRY[Math.floor(Math.random() * EFFECT_REGISTRY.length)]
+      const old = chain[i]
+      const next = new EC()
+      next.blendMode = old.blendMode
+      next.enabled   = old.enabled
+      chain[i] = next
+    }
+    randomizeEffect(chain[i])
   }
 }
 
@@ -214,6 +239,16 @@ function ParamsEditor({ effect, onChange, onRndSineChanged }) {
                   return <option key={v} value={v}>{l}</option>
                 })}
               </select>
+            </div>
+          )
+
+          if (def.type === 'boolean') return (
+            <div key={key} className="param-row span2">
+              <label className="toggle" style={{ padding: '4px 0' }}>
+                <input type="checkbox" defaultChecked={!!val}
+                  onChange={e => { effect.values[key] = e.target.checked; onChange() }} />
+                <span style={{ fontSize: 10, color: '#aaa' }}>{def.label}</span>
+              </label>
             </div>
           )
 
@@ -334,6 +369,12 @@ export default function Panel({
   isWebcamRef,
   canvasSize,
   setCanvasSize,
+  bgColor,
+  setBgColor,
+  disableDetection,
+  setDisableDetection,
+  previewFormat,
+  setPreviewFormat
 }) {
   // Normalise prop aliases
   const videoSource  = videoSourceHook ?? _vsLegacy
@@ -439,6 +480,7 @@ export default function Panel({
     window.OUTPUT_FPS = 9999; window.INPUT_FPS = 9999
     window.FRAME_BUF_MODE = 'idle'; window.FAST_MODE = false
     window.INTERP_SMOOTH = false; window.BG_REMOVE = false
+    window.DISABLE_MEDIAPIPE = false
     window.PRESERVE_DATA = false; window.PIXEL_TARGET_MODE = 'face'
     window.FINGERNAILS_MODE = false; window.HAND_FX_CONTROL = false
     window.MOUSE_FX_CONTROL = false; window.FX_OFFSET = { x: 0, y: 0 }
@@ -503,7 +545,25 @@ export default function Panel({
     for (let i = fe.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [fe[i], fe[j]] = [fe[j], fe[i]] }
     fp.forEach((pos, k) => { chain[pos] = fe[k] }); bump()
   }
-  const randomizeAll = () => { chain.forEach(randomizeEffect); bump() }
+  const randomizeAll = () => { shuffleEffects(chain, setSelectedIdx); bump() }
+  const heavyShuffle = () => {
+    // Completely recreate the chain with 3-6 random effects
+    if (chain.some(e => e.locked)) {
+      // If some are locked, just shuffle everything else
+      shuffleEffects(chain, setSelectedIdx)
+    } else {
+      chain.length = 0
+      const count = 3 + Math.floor(Math.random() * 4)
+      for (let i = 0; i < count; i++) {
+        const EC = EFFECT_REGISTRY[Math.floor(Math.random() * EFFECT_REGISTRY.length)]
+        const ef = new EC()
+        randomizeEffect(ef)
+        chain.push(ef)
+      }
+      setSelectedIdx(chain.length - 1)
+    }
+    bump()
+  }
   const randomizeSel = () => { if (selectedIdx >= 0 && selectedIdx < chain.length) { randomizeEffect(chain[selectedIdx]); bump() } }
 
   const smoothShuffle = () => {
@@ -738,7 +798,7 @@ export default function Panel({
       try { await videoSource?.startWebcam?.(res) } catch (err) { console.error(err) }
     }
   }
-  const handleVideoFile = (e) => { const f = e.target.files?.[0]; if (f) videoSource?.loadVideoFile?.(f); e.target.value = '' }
+  const handleMediaFile = (e) => { const f = e.target.files?.[0]; if (f) videoSource?.loadMediaFile?.(f); e.target.value = '' }
   const handleYt = async () => {
     if (!ytUrl.trim()) return; setYtStatus('● Fetching…')
     try { await videoSource?.loadYouTube?.(ytUrl); setYtStatus('● Playing') }
@@ -858,10 +918,21 @@ export default function Panel({
 
     bump()
   }
+  // Expose to window for CLI/automation
+  useEffect(() => {
+    window._cli_loadPreset = loadPreset
+    window._cli_getPresets = getPresets
+    window._cli_loadMedia  = (url) => {
+      fetch(url).then(r => r.blob()).then(blob => {
+        const file = new File([blob], 'cli-input', { type: blob.type })
+        videoSource.loadMediaFile(file)
+      })
+    }
+  }, [loadPreset, videoSource])
 
   const deletePreset = (idx) => { const all = getPresets(); all.splice(idx, 1); savePresets(all); setPresets(getPresets()) }
 
-  const fpsLabel = (v) => v >= 9999 ? '∞' : v % 1 === 0 ? String(v) : v.toFixed(1)
+  const fpsLabel = (v) => v === 0 ? 'STOP' : (v >= 9999 ? '∞' : v % 1 === 0 ? String(v) : v.toFixed(1))
   const rotLabel = (v) => v === 0 ? 'off' : (v > 0 ? '+' : '') + v.toFixed(2) + 'x'
   const selEffect = selectedIdx >= 0 && selectedIdx < chain.length ? chain[selectedIdx] : null
   const CAT_COLORS = { DRAW: '#1a3a2a', PIXEL: '#1a2a3a', BLEND: '#2a1a3a', FULL: '#3a2a1a', LAYER: '#3a3a1a', OVERLAY: '#1a3a3a', FACE: '#2a1a1a' }
@@ -890,10 +961,19 @@ export default function Panel({
           </div>
         </div>
         <div className="field-group">
+          <label className="field-label">Background Color</label>
+          <div className="row2">
+            <input type="color" value={bgColor} style={{ width: 40, height: 24, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+              onChange={e => setBgColor(e.target.value)} />
+            <input type="text" value={bgColor} onChange={e => setBgColor(e.target.value)} style={{ flex: 1 }} />
+            <button onClick={() => setBgColor('#000000')} style={{ fontSize: 10, padding: '2px 6px' }}>↺</button>
+          </div>
+        </div>
+        <div className="field-group">
           <label className="field-label">Other Sources</label>
           <button onClick={() => videoSource?.startScreenCapture?.()}>🖥 Screen Capture</button>
-          <button onClick={() => videoFileRef.current?.click()}>📂 Load Video File…</button>
-          <input ref={videoFileRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={handleVideoFile} />
+          <button onClick={() => videoFileRef.current?.click()}>📂 Load Media File…</button>
+          <input ref={videoFileRef} type="file" accept="video/*,image/*" style={{ display: 'none' }} onChange={handleMediaFile} />
         </div>
         <div className="field-group">
           <label className="field-label">YouTube</label>
@@ -980,11 +1060,14 @@ export default function Panel({
         <div className="field-group">
           <label className="field-label">Randomize</label>
           <div className="row2">
-            <button onClick={shuffleOrder}>🔀 Shuffle</button>
-            <button onClick={randomizeSel}>🎲 Selected</button>
+            <button onClick={shuffleOrder}>🔀 Shuffle Order</button>
+            <button onClick={randomizeSel}>🎲 Selected FX</button>
           </div>
           <div className="row2">
-            <button onClick={randomizeAll}>🎲 All</button>
+            <button onClick={randomizeAll}>🎲 Randomize All</button>
+            <button onClick={heavyShuffle} className="primary">💥 Heavy Shuffle</button>
+          </div>
+          <div className="row2">
             <button onClick={smoothShuffle}>🌀 Smooth</button>
           </div>
         </div>
@@ -1026,6 +1109,7 @@ export default function Panel({
           <Check label="Fast Mode (skip alt frames)"  checked={fastMode}     onChange={v => { window.FAST_MODE = v; setFastMode(v) }} />
           <Check label="Frame Interpolation"          checked={interpSmooth} onChange={v => { window.INTERP_SMOOTH = v; setInterpSmooth(v) }} />
           <Check label="BG Remove (face oval clip)"   checked={bgRemove}     onChange={v => { window.BG_REMOVE = v; setBgRemove(v) }} />
+          <Check label="Disable All Detection"        checked={disableDetection} onChange={setDisableDetection} />
           <Check label="White Mask Mode"              checked={whiteMask}    onChange={v => { window.WHITE_MASK_MODE = v; setWhiteMask(v) }} />
           {whiteMask && (
             <div className="param-row">
@@ -1079,10 +1163,32 @@ export default function Panel({
           <input type="range" min="1" max="240" step="1" value={inputFps}
             onChange={e => { const v = parseFloat(e.target.value); window.INPUT_FPS = v; setInputFps(v) }} />
           <label className="field-label">Output FPS {fpsLabel(outputFps)}</label>
-          <input type="range" min="1" max="240" step="1" value={outputFps}
+          <input type="range" min="0" max="240" step="1" value={outputFps}
             onChange={e => { const v = parseFloat(e.target.value); window.OUTPUT_FPS = v; setOutputFps(v) }} />
         </div>
         <div className="field-group">
+          <label className="field-label">Export JPG (300 DPI) / 👁 View 1:1</label>
+          {[
+            { id: 'ORYG', label: 'ORYG', title: 'Original Resolution' },
+            { id: 'A1',   label: 'A1',   title: 'A1 (7016 x 9933)' },
+            { id: 'A2',   label: 'A2',   title: 'A2 (4961 x 7016)' },
+            { id: 'A3',   label: 'A3',   title: 'A3 (3508 x 4961)' },
+            { id: 'A4',   label: 'A4',   title: 'A4 (2480 x 3508)' },
+          ].map(fmt => (
+            <div className="row2" key={fmt.id} style={{ marginBottom: 2 }}>
+              <button onClick={() => fmt.id === 'ORYG' ? window.exportOryg?.() : window.exportImage?.(fmt.id)} 
+                title={fmt.title} 
+                style={{ flex: 1, background: '#2d7a50', color: '#fff', fontSize: 10, height: 22 }}>
+                Export {fmt.label}
+              </button>
+              <button onClick={() => setPreviewFormat(prev => prev === fmt.id ? null : fmt.id)}
+                title={`Toggle 1:1 ${fmt.label} Preview`}
+                style={{ width: 40, background: previewFormat === fmt.id ? '#f00' : '#444', color: '#fff', fontSize: 12, height: 22, padding: 0 }}>
+                👁
+              </button>
+            </div>
+          ))}
+        </div>        <div className="field-group">
           <label className="field-label">Outputs</label>
           <div className="row3">
             <button onClick={() => window.toggleSpoutOut?.()}

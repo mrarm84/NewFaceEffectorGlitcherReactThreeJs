@@ -1992,6 +1992,42 @@ export class Dither {
   }
 }
 
+export class EdgeDetect {
+  static label    = 'Edge Detect';
+  static category = 'PIXEL';
+  constructor() {
+    this.label    = EdgeDetect.label;
+    this.category = EdgeDetect.category;
+    this.params = {
+      threshold: { label: 'Threshold', min: 10, max: 200, step: 1, default: 50 },
+      color:     { type: 'boolean', label: 'Invert colors', default: false },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, landmarks, handLandmarks) {
+    const { threshold, color } = this.values;
+    for (const box of getTargetBoxes(landmarks, handLandmarks, p)) {
+      const { x, y, w, h } = box;
+      const ctx = p.drawingContext;
+      const img = ctx.getImageData(x, y, w, h);
+      const d = img.data;
+      const src = new Uint8ClampedArray(d);
+      for (let py = 1; py < h - 1; py++) {
+        for (let px = 1; px < w - 1; px++) {
+          const i  = (py * w + px) * 4;
+          const i_l = i - 4;
+          const i_u = i - w * 4;
+          const diff = Math.abs(src[i] - src[i_l]) + Math.abs(src[i+1] - src[i_l+1]) + Math.abs(src[i+2] - src[i_l+2]) +
+                       Math.abs(src[i] - src[i_u]) + Math.abs(src[i+1] - src[i_u+1]) + Math.abs(src[i+2] - src[i_u+2]);
+          const val = diff > threshold ? (color ? 0 : 255) : (color ? 255 : 0);
+          d[i] = d[i+1] = d[i+2] = val;
+        }
+      }
+      ctx.putImageData(img, x, y);
+    }
+  }
+}
+
 export class ComicPsychedelia {
   static label    = 'Comic Psychedelia';
   static category = 'PIXEL';
@@ -2675,7 +2711,7 @@ function _textSlotParams() {
   return out;
 }
 
-class TextOverlay {
+export class TextOverlay {
   static label    = 'Text Overlay';
   static category = 'OVERLAY';
   constructor() {
@@ -2747,7 +2783,7 @@ class TextOverlay {
 }
 
 // ── Magnify Glass (Lupa) ──────────────────────────────────────────────────────
-class MagnifyGlass {
+export class MagnifyGlass {
   static label    = 'Magnify Glass';
   static category = 'FULL';
   constructor() {
@@ -2827,7 +2863,7 @@ class MagnifyGlass {
 
 // ── PuppetFX ──────────────────────────────────────────────────────────────────
 // Wireframe 3D body mesh puppet that hangs from the detected face and dances.
-class PuppetFX {
+export class PuppetFX {
   static label    = 'Puppet FX';
   static category = 'FACE';
 
@@ -3111,7 +3147,7 @@ class PuppetFX {
 }
 
 // ── PuppetModel ───────────────────────────────────────────────────────────────
-class PuppetModel {
+export class PuppetModel {
   static label    = 'Puppet Model';
   static category = 'FACE';
 
@@ -3992,15 +4028,42 @@ export class DevilFX {
 
 export class LoadObject3D {
   static label    = 'Load Object 3D';
-  static category = 'FACE';
+  static category = 'DRAW';
 
   constructor() {
     this.label    = LoadObject3D.label;
     this.category = LoadObject3D.category;
     this.params = {
       modelFile: { type: 'file', label: 'Load model file', accept: '.glb,.gltf,.fbx,.obj' },
-      modelName: { type: 'select', label: 'From folder', options: ['— pick file above —'], noRandom: true },
-      scale:      { label: 'Scale',           min: 0.01, max: 5.0,  step: 0.01, default: 1.0,  noRandom: true },
+      modelName: { type: 'select', label: 'From folder', options: [
+        '— pick file above —',
+        '2CylinderEngine.glb', 'animal_AlphaBlendModeTest.glb', 'animal_BoxVertexColors.glb', 'animal_Buggy.glb',
+        'animal_Corset.glb', 'animal_EmissiveStrengthTest.glb', 'animal_RiggedFigure.glb', 'AnimatedMorphCube.glb',
+        'antenna_BoxAnimated.glb', 'antenna_BoxVertexColors.glb', 'antenna_BoxWithoutIndices.glb', 'antenna_Corset.glb',
+        'antenna_Lantern.glb', 'antenna_SmilingFace.glb', 'AntiqueCamera.glb', 'Avocado.glb',
+        'BarramundiFish.glb', 'bird_AnimatedMorphCube.glb', 'bird_Buggy.glb', 'bird_CesiumMan.glb',
+        'bird_DirectionalLight.glb', 'bird_Fox.glb', 'bird_SmilingFace.glb', 'BoxAnimated.glb',
+        'BoxInterleaved.glb', 'BoxTextured.glb', 'BoxTexturedNonPowerOfTwo.glb', 'Buggy.glb',
+        'CarbonFibre.glb', 'cat_AnimatedMorphSphere.glb', 'cat_AttenuationTest.glb', 'cat_CesiumMilkTruck.glb',
+        'cat_InterpolationTest.glb', 'cat_Monster.glb', 'CesiumMilkTruck.glb', 'ClearCoatCarPaint.glb',
+        'ClearcoatWicker.glb', 'DamagedHelmet.glb', 'dog_AlphaBlendModeTest.glb', 'dog_AntiqueCamera.glb',
+        'dog_CesiumMan.glb', 'dog_Fox.glb', 'dog_GearboxAssy.glb', 'dog_GlamVelvetSofa.glb',
+        'DragonAttenuation.glb', 'EmissiveStrengthTest.glb', 'fish_AnimatedMorphSphere.glb', 'fish_CarbonFibre.glb',
+        'fish_CesiumMilkTruck.glb', 'fish_Duck.glb', 'fish_GearboxAssy.glb', 'fish_WalkingLady.glb',
+        'GearboxAssy.glb', 'GlamVelvetSofa.glb', 'head_Avocado.glb', 'head_BarramundiFish.glb',
+        'head_BoomBox.glb', 'head_ClearCoatTest.glb', 'head_IridescenceSuzanne.glb', 'head_Lantern.glb',
+        'head_RiggedFigure.glb', 'IridescenceLamp.glb', 'IridescentDishWithOlives.glb', 'LightsPunctualLamp.glb',
+        'medusa_BoxTextured.glb', 'medusa_CesiumMilkTruck.glb', 'medusa_DirectionalLight.glb', 'medusa_Duck.glb',
+        'medusa_MaterialsVariantsShoe.glb', 'medusa_WalkingLady.glb', 'octopus_2CylinderEngine.glb', 'octopus_BoxTexturedNonPowerOfTwo.glb',
+        'octopus_BoxWithoutIndices.glb', 'octopus_ClearCoatTest.glb', 'octopus_DragonAttenuation.glb', 'octopus_MetalRoughSpheres.glb',
+        'octopus_Monster.glb', 'radar_BoxInterleaved.glb', 'radar_BoxSemantics.glb', 'radar_CesiumMan.glb',
+        'radar_DamagedHelmet.glb', 'radar_LightsPunctualLamp.glb', 'radar_VC.glb', 'ReciprocatingSaw.glb',
+        'RiggedSimple.glb', 'satellite_BarramundiFish.glb', 'satellite_BoomBox.glb', 'satellite_BoxSemantics.glb',
+        'satellite_BoxTextured.glb', 'satellite_ClearcoatWicker.glb', 'satellite_IridescentDishWithOlives.glb', 'satellite_RiggedSimple.glb',
+        'skull_2CylinderEngine.glb', 'skull_AttenuationTest.glb', 'skull_Avocado.glb', 'skull_ClearCoatCarPaint.glb',
+        'skull_IridescenceLamp.glb', 'skull_IridescenceSuzanne.glb', 'skull_ReciprocatingSaw.glb', 'VC.glb'
+      ], noRandom: true },
+      scale:      { label: 'Scale',           min: 0.01, max: 12.5, step: 0.01, default: 1.0,  noRandom: true },
       rotX:       { label: 'Rot X (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
       rotY:       { label: 'Rot Y (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
       rotZ:       { label: 'Rot Z (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
@@ -4011,8 +4074,20 @@ export class LoadObject3D {
       rollSens:   { label: 'Roll Sens',       min: 0.0,  max: 3.0,  step: 0.1,  default: 1.0  },
       smoothing:  { label: 'Smoothing',       min: 0.0,  max: 0.95, step: 0.05, default: 0.5, noRandom: true },
       handSnap:   { label: 'Hand snap speed', min: 0.01, max: 1.0,  step: 0.01, default: 0.12, noRandom: true },
-      opacity:    { label: 'Opacity',         min: 0,    max: 1,    step: 0.01, default: 1.0  },
-      wireframe:  { label: 'Wireframe',       min: 0,    max: 1,    step: 1,    default: 0    },
+      wireStyle:  { type: 'select', label: 'Wire Style', options: ['Solid', 'Dashed', 'Dotted'], default: 'Solid', noRandom: true },
+      wireWidth:  { label: 'Wire Width',        min: 0.1,  max: 10,   step: 0.1,  default: 1.0  },
+      wireR:      { label: 'Wire R',            min: 0,    max: 255,  step: 1,    default: 255  },
+      wireG:      { label: 'Wire G',            min: 0,    max: 255,  step: 1,    default: 255  },
+      wireB:      { label: 'Wire B',            min: 0,    max: 255,  step: 1,    default: 255  },
+      wireAlpha:  { label: 'Wire Opacity',      min: 0,    max: 255,  step: 1,    default: 255  },
+      wireDash:   { label: 'Dash Size',         min: 0.01, max: 0.5,  step: 0.01, default: 0.05 },
+      wireGap:    { label: 'Gap Size',          min: 0.01, max: 0.5,  step: 0.01, default: 0.02 },
+      surfMode:   { type: 'select', label: 'Surface Mode', options: ['Normal', 'Ghost', 'X-Ray', 'Hidden'], default: 'Normal', noRandom: true },
+      surfAlpha:  { label: 'Surface Opacity',   min: 0,    max: 1,    step: 0.02, default: 1.0  },
+      opacity:    { label: 'Layer Opacity',     min: 0,    max: 1,    step: 0.01, default: 1.0  },
+      wireframe:  { type: 'boolean', label: 'Enable Wireframe', default: false },
+      hideBG:     { type: 'boolean', label: 'Hide background (sole source)', default: true, noRandom: true },
+      move:       { type: 'boolean', label: 'Move object by mouse', default: false, noRandom: true },
     };
     this.values = defaults(this.params);
 
@@ -4031,8 +4106,6 @@ export class LoadObject3D {
   }
 
   // ── Compute head yaw/pitch/roll from face landmarks ────────────────────────
-  // Uses z-depth asymmetry between cheeks for yaw, eye z vs nose z for pitch,
-  // and the eye-line angle for roll.
   _headPose(lms) {
     const le   = lms[33];   // left eye outer corner
     const re   = lms[263];  // right eye outer corner
@@ -4040,25 +4113,29 @@ export class LoadObject3D {
     const lc   = lms[234];  // left cheek
     const rc   = lms[454];  // right cheek
     if (!le || !re || !nt || !lc || !rc) return { yaw: 0, pitch: 0, roll: 0 };
-
-    // Yaw: when face turns right, left cheek z rises, right cheek z falls
     const yaw   = lc.z - rc.z;
-
-    // Pitch: nose z below eye level = looking up (negative pitch in Three.js)
     const eyeZ  = (le.z + re.z) * 0.5;
     const pitch = nt.z - eyeZ;
-
-    // Roll: tilt angle of the eye line
     const roll  = Math.atan2(re.y - le.y, re.x - le.x);
-
     return { yaw, pitch, roll };
+  }
+
+  // ── Sync Three.js renderer size with p5 canvas ─────────────────────────────
+  _syncSize(W, H) {
+    const t = this._three;
+    if (!t || !this._offCanvas) return;
+    if (this._offCanvas.width !== W || this._offCanvas.height !== H) {
+      t.renderer.setSize(W, H);
+      t.camera.aspect = W / H;
+      t.camera.updateProjectionMatrix();
+    }
   }
 
   // ── Lazy Three.js init ─────────────────────────────────────────────────────
   async _initThree(W, H) {
     let THREE, GLTFLoader, DRACOLoader, KTX2Loader, FBXLoader, OBJLoader, MeshoptDecoder;
     try {
-      THREE = await import('three/webgpu');
+      THREE = await import('three');
       ({ GLTFLoader }      = await import('three/addons/loaders/GLTFLoader.js'));
       ({ DRACOLoader }     = await import('three/addons/loaders/DRACOLoader.js'));
       ({ KTX2Loader }      = await import('three/addons/loaders/KTX2Loader.js'));
@@ -4069,20 +4146,13 @@ export class LoadObject3D {
       this._loadError = 'Three.js failed to load: ' + e.message;
       return false;
     }
-    this._THREE      = THREE;
+    this._THREE = THREE;
 
-    const renderer = new THREE.WebGPURenderer({ alpha: true, antialias: true });
-    try {
-      await renderer.init();
-    } catch (e) {
-      this._loadError = 'WebGPU not supported: ' + e.message;
-      return false;
-    }
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(W, H);
     renderer.setPixelRatio(1);
     renderer.setClearColor(0x000000, 0);
 
-    // Shared loaders
     const draco = new DRACOLoader();
     draco.setDecoderPath('/draco/');
     const ktx2 = new KTX2Loader();
@@ -4096,7 +4166,7 @@ export class LoadObject3D {
     this._FBXLoader       = FBXLoader;
     this._OBJLoader       = OBJLoader;
 
-    const camera= new THREE.PerspectiveCamera(45, W / H, 0.01, 1000);
+    const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 1000);
     camera.position.set(0, 0, 5);
 
     const scene = new THREE.Scene();
@@ -4110,13 +4180,10 @@ export class LoadObject3D {
     return true;
   }
 
-  // ── Load a model from URL or ArrayBuffer ───────────────────────────────────
   async _loadModel(urlOrBuffer, ext) {
     const THREE = this._THREE;
     const t     = this._three;
     if (!t) return;
-
-    // Remove old model from scene
     if (t.model) { t.scene.remove(t.model); t.model = null; t.mixer = null; }
 
     let object;
@@ -4141,126 +4208,72 @@ export class LoadObject3D {
         }
       } else if (ext === '.obj') {
         const loader = new this._OBJLoader();
-        if (typeof urlOrBuffer === 'string') {
-          object = await loader.loadAsync(urlOrBuffer);
-        } else {
-          const text = new TextDecoder().decode(urlOrBuffer);
-          object = loader.parse(text);
-        }
+        if (typeof urlOrBuffer === 'string') object = await loader.loadAsync(urlOrBuffer);
+        else object = loader.parse(new TextDecoder().decode(urlOrBuffer));
       } else {
-        this._loadError = 'Unsupported format: ' + ext;
-        return;
+        this._loadError = 'Unsupported format: ' + ext; return;
       }
     } catch (e) {
-      this._loadError = 'Load error: ' + e.message;
-      return;
+      this._loadError = 'Load error: ' + e.message; return;
     }
 
-    // Auto-scale: fit model into a unit cube
     const box = new THREE.Box3().setFromObject(object);
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
     if (maxDim > 0) object.scale.setScalar(1 / maxDim);
-
-    // Centre pivot
     const centre = box.getCenter(new THREE.Vector3());
     object.position.sub(centre.divideScalar(maxDim));
-
     t.scene.add(object);
     t.model = object;
     this._loadError = null;
   }
 
-  // ── Fetch folder model list once ───────────────────────────────────────────
-  async _fetchFolder() {
-    if (this._folderFetched) return;
-    this._folderFetched = true;
-    try {
-      const files = await fetch('/api/objects').then(r => r.json());
-      this._folderFiles = files;
-      // Update the 'modelName' param options
-      this.params.modelName.options = files.length
-        ? ['— pick file above —', ...files]
-        : ['— no models in folder —'];
-    } catch (_) {}
-  }
-
-  // ── Resize Three.js renderer when canvas size changes ─────────────────────
-  _syncSize(W, H) {
-    const t = this._three;
-    if (!t) return;
-    if (this._offCanvas.width !== W || this._offCanvas.height !== H) {
-      t.renderer.setSize(W, H);
-      t.camera.aspect = W / H;
-      t.camera.updateProjectionMatrix();
-    }
-  }
-
-  // ── Called each frame by the effect pipeline ───────────────────────────────
   apply(p, allFaceLMs, allHandLMs) {
     const ctx = p.drawingContext;
     const W = p.width, H = p.height;
 
-    // Lazy Three.js init (async, skip until ready)
     if (!this._three && !this._loading) {
       this._loading = true;
-      this._initThree(W, H).then(ok => {
-        this._loading = false;
-        this._fetchFolder();
-      });
+      this._initThree(W, H).then(() => this._loading = false);
     }
-    if (!this._three) {
-      // Show placeholder text while loading
-      ctx.save();
-      ctx.fillStyle = 'rgba(80,160,255,0.7)';
-      ctx.font = '12px monospace';
-      ctx.fillText('Load Object 3D: initialising Three.js…', 10, H - 20);
-      ctx.restore();
-      return;
-    }
+    if (!this._three) return;
 
     if (this._loadError) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(255,80,80,0.85)';
-      ctx.font = '11px monospace';
-      ctx.fillText('3D: ' + this._loadError, 10, H - 20);
-      ctx.restore();
+      ctx.save(); ctx.fillStyle = 'rgba(255,80,80,0.85)'; ctx.font = '11px monospace';
+      ctx.fillText('3D: ' + this._loadError, 10, H - 20); ctx.restore(); return;
     }
 
-    const t   = this._three;
-    const THREE = this._THREE;
+    const t = this._three; const THREE = this._THREE;
     this._syncSize(W, H);
 
-    const { scale, rotX, rotY, rotZ, autoSpin, headTrack, yawSens, pitchSens, rollSens, smoothing, handSnap, opacity, wireframe } = this.values;
+    const {
+      scale, rotX, rotY, rotZ, autoSpin, headTrack, yawSens, pitchSens, rollSens,
+      smoothing, handSnap, wireStyle, wireWidth, wireR, wireG, wireB, wireAlpha,
+      wireDash, wireGap, surfMode, surfAlpha, opacity, wireframe, hideBG, move
+    } = this.values;
 
-    // ── Compute face anchor (canvas px) ──────────────────────────────────────
     const faceLMs = allFaceLMs?.[0] ?? null;
     let faceX = W * 0.5, faceY = H * 0.38, faceSize = H * 0.22;
     if (faceLMs?.length) {
-      let cx = 0, cy = 0;
-      for (const lm of faceLMs) { cx += lm.x; cy += lm.y; }
+      let cx = 0, cy = 0; for (const lm of faceLMs) { cx += lm.x; cy += lm.y; }
       cx /= faceLMs.length; cy /= faceLMs.length;
       faceX = cx * W; faceY = cy * H;
       const top = faceLMs[10], bot = faceLMs[152];
       if (top && bot) faceSize = Math.abs(bot.y - top.y) * H * 1.2;
     }
 
-    // ── Hand controls offset (index-finger tip follows head-relative vector) ──
-    const handLMs = allHandLMs?.[0] ?? null;
-    if (handLMs?.length) {
-      const tip = handLMs[8];
-      const targetX = (tip.x * W - faceX);
-      const targetY = (tip.y * H - faceY);
-      this._offsetX += (targetX - this._offsetX) * handSnap;
-      this._offsetY += (targetY - this._offsetY) * handSnap;
-      this._handActive = true;
+    if (move) {
+      window.MOUSE_FX_CONTROL = true;
+      if (window.FX_OFFSET) { this._offsetX = window.FX_OFFSET.x; this._offsetY = window.FX_OFFSET.y; }
     } else {
-      this._handActive = false;
-      // Offset stays wherever the hand left it
+      const handLMs = allHandLMs?.[0] ?? null;
+      if (handLMs?.length) {
+        const tip = handLMs[8];
+        this._offsetX += (tip.x * W - faceX - this._offsetX) * handSnap;
+        this._offsetY += (tip.y * H - faceY - this._offsetY) * handSnap;
+      }
     }
 
-    // ── Map face position → Three.js world coords (orthographic-style) ────────
-    // Camera looks along -Z at z=5; at z=0 visible height = 2*tan(22.5°)*5 ≈ 4.14 units
     const camH = 2 * Math.tan((45 / 2) * (Math.PI / 180)) * t.camera.position.z;
     const camW = camH * (W / H);
     const wx = ((faceX + this._offsetX) / W - 0.5) *  camW;
@@ -4268,81 +4281,95 @@ export class LoadObject3D {
     const modelScale = (faceSize / H) * camH * scale;
 
     if (t.model) {
-      // Auto-spin around Y
       this._autoAngle += autoSpin * (1 / 60);
-
-      let rx = rotX * Math.PI / 180;
-      let ry = rotY * Math.PI / 180 + this._autoAngle;
-      let rz = rotZ * Math.PI / 180;
-
-      // Head-tracking: override rotation with smoothed face pose
+      let rx = rotX * Math.PI / 180, ry = rotY * Math.PI / 180 + this._autoAngle, rz = rotZ * Math.PI / 180;
       if (headTrack >= 0.5 && faceLMs?.length) {
-        const raw  = this._headPose(faceLMs);
-        const s    = smoothing;
-        const ps   = this._poseSmooth;
-        ps.yaw   = ps.yaw   * s + raw.yaw   * (1 - s);
-        ps.pitch = ps.pitch * s + raw.pitch * (1 - s);
-        ps.roll  = ps.roll  * s + raw.roll  * (1 - s);
-        rx = rotX * Math.PI / 180 + ps.pitch * pitchSens;
-        ry = rotY * Math.PI / 180 + this._autoAngle + ps.yaw * yawSens;
-        rz = rotZ * Math.PI / 180 - ps.roll  * rollSens;
+        const raw = this._headPose(faceLMs); const s = smoothing; const ps = this._poseSmooth;
+        ps.yaw = ps.yaw*s + raw.yaw*(1-s); ps.pitch = ps.pitch*s + raw.pitch*(1-s); ps.roll = ps.roll*s + raw.roll*(1-s);
+        rx += ps.pitch * pitchSens; ry += ps.yaw * yawSens; rz -= ps.roll * rollSens;
       }
+      t.model.position.set(wx, wy, 0); t.model.rotation.set(rx, ry, rz); t.model.scale.setScalar(modelScale);
 
-      t.model.position.set(wx, wy, 0);
-      t.model.rotation.set(rx, ry, rz);
-      t.model.scale.setScalar(modelScale);
-
-      // Wireframe toggle
-      const wf = wireframe >= 0.5;
-      t.model.traverse(child => {
-        if (child.isMesh && child.material) {
-          const mats = Array.isArray(child.material) ? child.material : [child.material];
-          mats.forEach(m => { if ('wireframe' in m) m.wireframe = wf; });
+      const wireCol = new THREE.Color(wireR/255, wireG/255, wireB/255);
+      t.model.traverse(node => {
+        if (node.isMesh) {
+          if (!node._origMat) node._origMat = node.material;
+          if (surfMode === 'Hidden') node.material.visible = false;
+          else {
+            node.material.visible = true; node.material.transparent = true; node.material.opacity = surfAlpha;
+            node.material.blending = (surfMode === 'X-Ray') ? THREE.AdditiveBlending : THREE.NormalBlending;
+            node.material.depthWrite = (surfMode === 'Normal');
+          }
+          if (wireframe) {
+            if (!node._wireObj) {
+              const wireGeom = new THREE.WireframeGeometry(node.geometry);
+              const wireMat = (wireStyle === 'Solid') ? new THREE.LineBasicMaterial() : new THREE.LineDashedMaterial();
+              node._wireObj = new THREE.LineSegments(wireGeom, wireMat); node.add(node._wireObj);
+            }
+            const w = node._wireObj; w.visible = true; w.material.color.copy(wireCol); w.material.opacity = wireAlpha / 255; w.material.transparent = true;
+            if (wireStyle !== 'Solid') {
+              w.material.dashSize = (wireStyle === 'Dotted') ? 0.001 : wireDash; w.material.gapSize = wireGap; w.computeLineDistances();
+            }
+          } else if (node._wireObj) node._wireObj.visible = false;
         }
       });
     }
-
-    // ── Advance animations ────────────────────────────────────────────────────
-    const delta = t.clock.getDelta();
-    if (t.mixer) t.mixer.update(delta);
-
-    // ── Render Three.js → composite onto p5 canvas ───────────────────────────
+    if (t.mixer) t.mixer.update(t.clock.getDelta());
     t.renderer.render(t.scene, t.camera);
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.drawImage(this._offCanvas, 0, 0);
-    ctx.restore();
-
-    // ── Show hand-target dot ──────────────────────────────────────────────────
-    if (this._handActive && handLMs?.length) {
-      const tip = handLMs[8];
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(tip.x * W, tip.y * H, 7, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(80,200,255,0.6)';
-      ctx.fill();
-      ctx.restore();
-    }
+    ctx.save(); ctx.globalAlpha = opacity; ctx.drawImage(this._offCanvas, 0, 0); ctx.restore();
   }
 
-  // ── Called by ui.js when file input or folder select changes ──────────────
   async onFileParam(key, file) {
-    if (key !== 'modelFile') return;
-    if (!this._three) return;
+    if (key !== 'modelFile' || !this._three) return;
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    const buf = await file.arrayBuffer();
-    // For GLB/FBX/OBJ loadAsync expects a URL or typed array; pass blob URL
-    const url = URL.createObjectURL(new Blob([buf]));
-    await this._loadModel(url, ext);
-    URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(file); await this._loadModel(url, ext); URL.revokeObjectURL(url);
   }
-
   async onSelectParam(key, value) {
-    if (key !== 'modelName') return;
-    if (!value || value.startsWith('—')) return;
-    if (!this._three) return;
+    if (key !== 'modelName' || !value || value.startsWith('—') || !this._three) return;
     const ext = value.slice(value.lastIndexOf('.')).toLowerCase();
     await this._loadModel(`/models/objects/${encodeURIComponent(value)}`, ext);
+  }
+}
+
+export class DepthOfField {
+  static label    = 'Depth of Field';
+  static category = 'BLEND';
+  constructor() {
+    this.label    = DepthOfField.label;
+    this.category = DepthOfField.category;
+    this._blurCanvas = null; this._maskCanvas = null;
+    this.params = {
+      blurSize: { label: 'Blur Size', min: 0, max: 40, step: 1, default: 8 },
+      focusRadius: { label: 'Focus Radius', min: 0.1, max: 4, step: 0.1, default: 1.5 },
+      falloff: { label: 'Falloff', min: 0.01, max: 1, step: 0.05, default: 0.5 }
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, landmarks, handLandmarks) {
+    const { blurSize, focusRadius, falloff } = this.values;
+    if (blurSize < 1) return;
+    const ctx = p.drawingContext; const W = p.width, H = p.height;
+    if (!this._blurCanvas || this._blurCanvas.width !== W) {
+      this._blurCanvas = document.createElement('canvas'); this._blurCanvas.width = W; this._blurCanvas.height = H;
+      this._maskCanvas = document.createElement('canvas'); this._maskCanvas.width = W; this._maskCanvas.height = H;
+    }
+    const bCtx = this._blurCanvas.getContext('2d'); const mCtx = this._maskCanvas.getContext('2d');
+    bCtx.clearRect(0, 0, W, H); bCtx.filter = `blur(${blurSize}px)`; bCtx.drawImage(ctx.canvas, 0, 0); bCtx.filter = 'none';
+    const focusPoints = [];
+    for (const face of (landmarks || [])) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const lm of face) { const px = lm.x * W, py = lm.y * H; if (px < minX) minX = px; if (px > maxX) maxX = px; if (py < minY) minY = py; if (py > maxY) maxY = py; }
+      focusPoints.push({ x: (minX+maxX)/2, y: (minY+maxY)/2, r: Math.max(maxX-minX, maxY-minY) * 0.5 * focusRadius });
+    }
+    if (focusPoints.length === 0) { ctx.drawImage(this._blurCanvas, 0, 0); return; }
+    mCtx.clearRect(0, 0, W, H); mCtx.drawImage(this._blurCanvas, 0, 0); mCtx.globalCompositeOperation = 'destination-out';
+    for (const pt of focusPoints) {
+      const inner = Math.max(0, pt.r * (1 - falloff));
+      const grad = mCtx.createRadialGradient(pt.x, pt.y, inner, pt.x, pt.y, pt.r);
+      grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+      mCtx.fillStyle = grad; mCtx.beginPath(); mCtx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); mCtx.fill();
+    }
+    mCtx.globalCompositeOperation = 'source-over'; ctx.drawImage(this._maskCanvas, 0, 0);
   }
 }
 
@@ -4493,7 +4520,7 @@ export class FaceCapFX {
   async _init(W, H) {
     let THREE, GLTFLoader, DRACOLoader, KTX2Loader, MeshoptDecoder;
     try {
-      THREE = await import('three/webgpu');
+      THREE = await import('three');
       ({ GLTFLoader }     = await import('three/addons/loaders/GLTFLoader.js'));
       ({ DRACOLoader }    = await import('three/addons/loaders/DRACOLoader.js'));
       ({ KTX2Loader }     = await import('three/addons/loaders/KTX2Loader.js'));
@@ -4503,12 +4530,11 @@ export class FaceCapFX {
     // Renderer must exist before KTX2Loader
     let renderer;
     try {
-      renderer = new THREE.WebGPURenderer({ alpha: true, antialias: true });
-      await renderer.init();
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
       renderer.setSize(W, H);
       renderer.setPixelRatio(1);
       renderer.setClearColor(0x000000, 0);
-    } catch (e) { this._loadError = 'WebGPU: ' + e.message; return; }
+    } catch (e) { this._loadError = 'WebGL: ' + e.message; return; }
 
     const draco = new DRACOLoader();
     draco.setDecoderPath('/draco/');
@@ -4699,7 +4725,8 @@ export const EFFECT_REGISTRY = [
   PoseSkeleton, PoseGlitch,
   TileGlitch, GlitchLines, ChromaticAberration,
   Pixelate, ColorShift, Scanlines, NoiseEffect,
-  MotionBlur,
-  AsciiArt, Dither, ComicPsychedelia, HalftoneDots, RasterFX,
+  MotionBlur, DepthOfField,
+  AsciiArt, Dither, EdgeDetect, ComicPsychedelia, HalftoneDots, RasterFX,
   HueSaturation, GhostTrail, FullGlitch, Vignette, FilmGrain, CRTScanlines, RasterWave,
-];
+  ];
+
