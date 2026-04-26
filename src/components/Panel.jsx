@@ -863,6 +863,7 @@ export default function Panel({
         sineActive:      sineActiveRef.current,
         // Detection confidence
         detectConf:      window.MIN_DETECT_CONF ?? 0.5,
+        glbUrl:          glbUrl,
       },
     }
     if (existing >= 0) all[existing] = preset; else all.unshift(preset)
@@ -912,6 +913,7 @@ export default function Panel({
     if (gs.resScale !== undefined) { window.RES_SCALE = gs.resScale / 100; setResScale(gs.resScale) }
     if (gs.audioReact !== undefined) { window.AUDIO_REACT = gs.audioReact; setAudioReact(gs.audioReact) }
     if (gs.sineSpeed  !== undefined) { sineSpeedRef.current = gs.sineSpeed; setSineSpeed(gs.sineSpeed) }
+    if (gs.glbUrl     !== undefined) { setGlbUrl(gs.glbUrl) }
 
     // Restore sine state
     if (gs.sineActive !== undefined && gs.sineActive !== sineActiveRef.current) toggleSine()

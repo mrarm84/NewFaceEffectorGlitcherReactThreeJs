@@ -10,9 +10,9 @@ import { useFrameBuffer  } from './hooks/useFrameBuffer'
 import './App.css'
 
 const BUILT_IN_MODELS = [
-  '/models/objects/BrainStem.glb',
-  '/models/objects/Box.glb',
-  '/models/objects/Duck.glb',
+  '/models/objects/head_Avocado.glb',
+  '/models/objects/head_BarramundiFish.glb',
+  '/models/objects/facecap.glb',
 ]
 
 export default function App() {
@@ -51,7 +51,10 @@ export default function App() {
 
   useEffect(() => {
     fetch('/api/objects').then(r => r.json()).then(files => {
-      if (files?.length) setServerModels(files.map(f => `/models/objects/${f}`))
+      if (files?.length) {
+        const filtered = files.filter(f => f.includes('_') || f === 'facecap.glb')
+        setServerModels(filtered.map(f => `/models/objects/${f}`))
+      }
     }).catch(() => {})
   }, [])
 

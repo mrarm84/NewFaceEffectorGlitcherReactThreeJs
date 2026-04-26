@@ -2028,6 +2028,162 @@ export class EdgeDetect {
   }
 }
 
+export class PixelSort {
+  static label    = 'Pixel Sort';
+  static category = 'GLITCH';
+  constructor() {
+    this.label    = PixelSort.label;
+    this.category = PixelSort.category;
+    this.params = {
+      threshold: { label: 'Threshold', min: 0, max: 255, step: 1, default: 128 },
+      vertical:  { type: 'boolean', label: 'Vertical', default: false },
+      reverse:   { type: 'boolean', label: 'Reverse',  default: false },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, landmarks, handLandmarks) {
+    const { threshold, vertical, reverse } = this.values;
+    for (const box of getTargetBoxes(landmarks, handLandmarks, p)) {
+      const { x, y, w, h } = box;
+      const ctx = p.drawingContext;
+      const img = ctx.getImageData(x, y, w, h);
+      const d = img.data;
+
+      const getLuma = (idx) => 0.299 * d[idx] + 0.587 * d[idx+1] + 0.114 * d[idx+2];
+
+      const sortInterval = (indices) => {
+        const interval = indices.map(i => [d[i], d[i+1], d[i+2], d[i+3], getLuma(i)]);
+        interval.sort((a, b) => reverse ? b[4] - a[4] : a[4] - b[4]);
+        indices.forEach((idx, i) => {
+          d[idx] = interval[i][0]; d[idx+1] = interval[i][1]; d[idx+2] = interval[i][2]; d[idx+3] = interval[i][3];
+        });
+      };
+
+      if (vertical) {
+        for (let px = 0; px < w; px++) {
+          let startY = -1;
+          for (let py = 0; py < h; py++) {
+            const i = (py * w + px) * 4;
+            if (getLuma(i) > threshold) {
+              if (startY === -1) startY = py;
+            } else if (startY !== -1) {
+              const indices = []; for (let ty = startY; ty < py; ty++) indices.push((ty * w + px) * 4);
+              sortInterval(indices); startY = -1;
+            }
+          }
+          if (startY !== -1) {
+            const indices = []; for (let ty = startY; ty < h; ty++) indices.push((ty * w + px) * 4);
+            sortInterval(indices);
+          }
+        }
+      } else {
+        for (let py = 0; py < h; py++) {
+          let startX = -1;
+          for (let px = 0; px < w; px++) {
+            const i = (py * w + px) * 4;
+            if (getLuma(i) > threshold) {
+              if (startX === -1) startX = px;
+            } else if (startX !== -1) {
+              const indices = []; for (let tx = startX; tx < px; tx++) indices.push((py * w + tx) * 4);
+              sortInterval(indices); startX = -1;
+            }
+          }
+          if (startX !== -1) {
+            const indices = []; for (let tx = startX; tx < w; tx++) indices.push((py * w + tx) * 4);
+            sortInterval(indices);
+          }
+        }
+      }
+      ctx.putImageData(img, x, y);
+    }
+  }
+}
+
+export class AtkinsonDither {
+  static label    = 'Atkinson Dither';
+  static category = 'PIXEL';
+  constructor() {
+    this.label    = AtkinsonDither.label;
+    this.category = AtkinsonDither.category;
+    this.params = {
+      levels: { label: 'Levels', min: 2, max: 16, step: 1, default: 2 },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, landmarks, handLandmarks) {
+    const { levels } = this.values;
+    for (const box of getTargetBoxes(landmarks, handLandmarks, p)) {
+      const { x, y, w, h } = box;
+      const ctx = p.drawingContext;
+      const img = ctx.getImageData(x, y, w, h);
+      const d = img.data;
+      const addErr = (x, y, err, weight) => {
+        if (x < 0 || x >= w || y < 0 || y >= h) return;
+        const i = (y * w + x) * 4;
+        for (let c = 0; c < 3; c++) d[i + c] += err[c] * weight;
+      };
+      for (let py = 0; py < h; py++) {
+        for (let px = 0; px < w; px++) {
+          const i = (py * w + px) * 4;
+          const old = [d[i], d[i+1], d[i+2]];
+          const quant = old.map(v => Math.round((v / 255) * (levels - 1)) / (levels - 1) * 255);
+          d[i] = quant[0]; d[i+1] = quant[1]; d[i+2] = quant[2];
+          const err = old.map((v, c) => v - quant[c]);
+          const w1 = 1 / 8;
+          addErr(px + 1, py, err, w1);
+          addErr(px + 2, py, err, w1);
+          addErr(px - 1, py + 1, err, w1);
+          addErr(px, py + 1, err, w1);
+          addErr(px + 1, py + 1, err, w1);
+          addErr(px, py + 2, err, w1);
+        }
+      }
+      ctx.putImageData(img, x, y);
+    }
+  }
+}
+
+export class VHSGlitch {
+  static label    = 'VHS Glitch';
+  static category = 'GLITCH';
+  constructor() {
+    this.label    = VHSGlitch.label;
+    this.category = VHSGlitch.category;
+    this.params = {
+      noise:  { label: 'Noise',  min: 0, max: 1, step: 0.01, default: 0.2 },
+      jitter: { label: 'Jitter', min: 0, max: 20, step: 1,   default: 5 },
+      drift:  { label: 'Drift',  min: 0, max: 10, step: 1,   default: 2 },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, landmarks, handLandmarks) {
+    const { noise, jitter, drift } = this.values;
+    for (const box of getTargetBoxes(landmarks, handLandmarks, p)) {
+      const { x, y, w, h } = box;
+      const ctx = p.drawingContext;
+      const img = ctx.getImageData(x, y, w, h);
+      const d = img.data;
+      const copy = new Uint8ClampedArray(d);
+      for (let py = 0; py < h; py++) {
+        const lineJitter = (Math.random() - 0.5) * jitter;
+        const lineDrift  = (Math.sin(py * 0.1 + performance.now() * 0.005) * drift) | 0;
+        const offset = (lineJitter + lineDrift) | 0;
+        for (let px = 0; px < w; px++) {
+          const i = (py * w + px) * 4;
+          const srcX = Math.max(0, Math.min(w - 1, px + offset));
+          const si = (py * w + srcX) * 4;
+          // Noise
+          const n = (Math.random() - 0.5) * noise * 255;
+          d[i]   = Math.min(255, Math.max(0, copy[si] + n));
+          d[i+1] = Math.min(255, Math.max(0, copy[si+1] + n));
+          d[i+2] = Math.min(255, Math.max(0, copy[si+2] + n));
+        }
+      }
+      ctx.putImageData(img, x, y);
+    }
+  }
+}
+
 export class ComicPsychedelia {
   static label    = 'Comic Psychedelia';
   static category = 'PIXEL';
@@ -4037,31 +4193,30 @@ export class LoadObject3D {
       modelFile: { type: 'file', label: 'Load model file', accept: '.glb,.gltf,.fbx,.obj' },
       modelName: { type: 'select', label: 'From folder', options: [
         '— pick file above —',
-        '2CylinderEngine.glb', 'animal_AlphaBlendModeTest.glb', 'animal_BoxVertexColors.glb', 'animal_Buggy.glb',
-        'animal_Corset.glb', 'animal_EmissiveStrengthTest.glb', 'animal_RiggedFigure.glb', 'AnimatedMorphCube.glb',
+        'animal_AlphaBlendModeTest.glb', 'animal_BoxVertexColors.glb', 'animal_Buggy.glb',
+        'animal_Corset.glb', 'animal_EmissiveStrengthTest.glb', 'animal_RiggedFigure.glb',
         'antenna_BoxAnimated.glb', 'antenna_BoxVertexColors.glb', 'antenna_BoxWithoutIndices.glb', 'antenna_Corset.glb',
-        'antenna_Lantern.glb', 'antenna_SmilingFace.glb', 'AntiqueCamera.glb', 'Avocado.glb',
-        'BarramundiFish.glb', 'bird_AnimatedMorphCube.glb', 'bird_Buggy.glb', 'bird_CesiumMan.glb',
-        'bird_DirectionalLight.glb', 'bird_Fox.glb', 'bird_SmilingFace.glb', 'BoxAnimated.glb',
-        'BoxInterleaved.glb', 'BoxTextured.glb', 'BoxTexturedNonPowerOfTwo.glb', 'Buggy.glb',
-        'CarbonFibre.glb', 'cat_AnimatedMorphSphere.glb', 'cat_AttenuationTest.glb', 'cat_CesiumMilkTruck.glb',
-        'cat_InterpolationTest.glb', 'cat_Monster.glb', 'CesiumMilkTruck.glb', 'ClearCoatCarPaint.glb',
-        'ClearcoatWicker.glb', 'DamagedHelmet.glb', 'dog_AlphaBlendModeTest.glb', 'dog_AntiqueCamera.glb',
+        'antenna_Lantern.glb', 'antenna_SmilingFace.glb',
+        'bird_AnimatedMorphCube.glb', 'bird_Buggy.glb', 'bird_CesiumMan.glb',
+        'bird_DirectionalLight.glb', 'bird_Fox.glb', 'bird_SmilingFace.glb',
+        'cat_AnimatedMorphSphere.glb', 'cat_AttenuationTest.glb', 'cat_CesiumMilkTruck.glb',
+        'cat_InterpolationTest.glb', 'cat_Monster.glb',
+        'dog_AlphaBlendModeTest.glb', 'dog_AntiqueCamera.glb',
         'dog_CesiumMan.glb', 'dog_Fox.glb', 'dog_GearboxAssy.glb', 'dog_GlamVelvetSofa.glb',
-        'DragonAttenuation.glb', 'EmissiveStrengthTest.glb', 'fish_AnimatedMorphSphere.glb', 'fish_CarbonFibre.glb',
+        'fish_AnimatedMorphSphere.glb', 'fish_CarbonFibre.glb',
         'fish_CesiumMilkTruck.glb', 'fish_Duck.glb', 'fish_GearboxAssy.glb', 'fish_WalkingLady.glb',
-        'GearboxAssy.glb', 'GlamVelvetSofa.glb', 'head_Avocado.glb', 'head_BarramundiFish.glb',
+        'head_Avocado.glb', 'head_BarramundiFish.glb',
         'head_BoomBox.glb', 'head_ClearCoatTest.glb', 'head_IridescenceSuzanne.glb', 'head_Lantern.glb',
-        'head_RiggedFigure.glb', 'IridescenceLamp.glb', 'IridescentDishWithOlives.glb', 'LightsPunctualLamp.glb',
+        'head_RiggedFigure.glb',
         'medusa_BoxTextured.glb', 'medusa_CesiumMilkTruck.glb', 'medusa_DirectionalLight.glb', 'medusa_Duck.glb',
         'medusa_MaterialsVariantsShoe.glb', 'medusa_WalkingLady.glb', 'octopus_2CylinderEngine.glb', 'octopus_BoxTexturedNonPowerOfTwo.glb',
         'octopus_BoxWithoutIndices.glb', 'octopus_ClearCoatTest.glb', 'octopus_DragonAttenuation.glb', 'octopus_MetalRoughSpheres.glb',
         'octopus_Monster.glb', 'radar_BoxInterleaved.glb', 'radar_BoxSemantics.glb', 'radar_CesiumMan.glb',
-        'radar_DamagedHelmet.glb', 'radar_LightsPunctualLamp.glb', 'radar_VC.glb', 'ReciprocatingSaw.glb',
-        'RiggedSimple.glb', 'satellite_BarramundiFish.glb', 'satellite_BoomBox.glb', 'satellite_BoxSemantics.glb',
+        'radar_DamagedHelmet.glb', 'radar_LightsPunctualLamp.glb', 'radar_VC.glb',
+        'satellite_BarramundiFish.glb', 'satellite_BoomBox.glb', 'satellite_BoxSemantics.glb',
         'satellite_BoxTextured.glb', 'satellite_ClearcoatWicker.glb', 'satellite_IridescentDishWithOlives.glb', 'satellite_RiggedSimple.glb',
         'skull_2CylinderEngine.glb', 'skull_AttenuationTest.glb', 'skull_Avocado.glb', 'skull_ClearCoatCarPaint.glb',
-        'skull_IridescenceLamp.glb', 'skull_IridescenceSuzanne.glb', 'skull_ReciprocatingSaw.glb', 'VC.glb'
+        'skull_IridescenceLamp.glb', 'skull_IridescenceSuzanne.glb', 'skull_ReciprocatingSaw.glb'
       ], noRandom: true },
       scale:      { label: 'Scale',           min: 0.01, max: 12.5, step: 0.01, default: 1.0,  noRandom: true },
       rotX:       { label: 'Rot X (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
@@ -4725,8 +4880,9 @@ export const EFFECT_REGISTRY = [
   PoseSkeleton, PoseGlitch,
   TileGlitch, GlitchLines, ChromaticAberration,
   Pixelate, ColorShift, Scanlines, NoiseEffect,
+  PixelSort, VHSGlitch,
   MotionBlur, DepthOfField,
-  AsciiArt, Dither, EdgeDetect, ComicPsychedelia, HalftoneDots, RasterFX,
+  AsciiArt, Dither, AtkinsonDither, EdgeDetect, ComicPsychedelia, HalftoneDots, RasterFX,
   HueSaturation, GhostTrail, FullGlitch, Vignette, FilmGrain, CRTScanlines, RasterWave,
-  ];
+];
 
