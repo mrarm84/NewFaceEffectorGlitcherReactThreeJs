@@ -18,8 +18,10 @@
     "@mediapipe/tasks-vision": "^0.10.34",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
+    "prismjs": "^1.30.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-simple-code-editor": "^0.14.1",
     "three": "^0.183.2"
   },
   "devDependencies": {

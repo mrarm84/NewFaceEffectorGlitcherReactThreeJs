@@ -168,6 +168,7 @@ const TABS = [
   { id: 'video',    icon: '📷', label: 'VIDEO'   },
   { id: 'effects',  icon: '✦',  label: 'FX'      },
   { id: 'random',   icon: '🎲', label: 'RAND'    },
+  { id: 'sequence', icon: '🎞', label: 'SEQ'     },
   { id: 'detect',   icon: '👁',  label: 'ML'      },
   { id: 'output',   icon: '⚙',  label: 'OUT'     },
   { id: 'audio',    icon: '🎵', label: 'AUDIO'   },
@@ -380,7 +381,7 @@ export default function Panel({
   const videoSource  = videoSourceHook ?? _vsLegacy
   const setGlbUrl    = onGlbChange ?? _setGlbLegacy ?? (() => {})
   const setShowStats = onShowStatsChange ?? _setStatsLegacy ?? (() => {})
-  const [sectionsOpen, setSectionsOpen] = useState({ video:true, effects:true, random:true, detect:true, output:true, audio:true, more:true })
+  const [sectionsOpen, setSectionsOpen] = useState({ video:true, sequence:true, effects:true, random:true, detect:true, output:true, audio:true, more:true })
   const [, setV] = useState(0)
   const tabBodyRef    = useRef(null)
   const savedScrollRef = useRef(0)
@@ -435,6 +436,7 @@ export default function Panel({
   const [handSens,     setHandSens]     = useState(1.5)
   const [whiteMask,    setWhiteMask]    = useState(false)
   const [whiteMaskThr, setWhiteMaskThr] = useState(185)
+  const [webcamFlipped, setWebcamFlipped] = useState(false)
 
   // FPS / Res
   const [resScale,  setResScale]  = useState(100)
@@ -939,9 +941,109 @@ export default function Panel({
   const selEffect = selectedIdx >= 0 && selectedIdx < chain.length ? chain[selectedIdx] : null
   const CAT_COLORS = { DRAW: '#1a3a2a', PIXEL: '#1a2a3a', BLEND: '#2a1a3a', FULL: '#3a2a1a', LAYER: '#3a3a1a', OVERLAY: '#1a3a3a', FACE: '#2a1a1a' }
 
+  const handleFreeze = useCallback(async () => {
+    const video = videoSource?.videoRef?.current
+    if (!video || video.readyState < 2) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    
+    // Fill black to avoid strange edges/transparency
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+    
+    if (isWebcamRef?.current && webcamFlipped) {
+      ctx.translate(canvas.width, 0); ctx.scale(-1, 1)
+    }
+    
+    ctx.drawImage(video, 0, 0)
+    
+    const dataUrl = canvas.toDataURL('image/png')
+    await videoSource.loadMediaFile(dataUrl, true)
+    bump()
+  }, [videoSource, isWebcamRef, webcamFlipped, bump])
+
+  const handleManualFlip = useCallback(async (axis) => {
+    const video = videoSource?.videoRef?.current
+    if (!video || video.readyState < 2) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+    
+    if (axis === 'h') {
+      ctx.translate(canvas.width, 0); ctx.scale(-1, 1)
+    } else if (axis === 'v') {
+      ctx.translate(0, canvas.height); ctx.scale(1, -1)
+    } else if (axis === '180') {
+      ctx.translate(canvas.width, canvas.height); ctx.scale(-1, -1)
+    }
+    
+    ctx.drawImage(video, 0, 0)
+    const dataUrl = canvas.toDataURL('image/png')
+    await videoSource.loadMediaFile(dataUrl, true)
+    bump()
+  }, [videoSource, bump])
+
+  const handleAddToSeq = useCallback(() => {
+    const canvas = document.querySelector('.effects-canvas-el')
+    if (!canvas || !frameBuffer) return
+    frameBuffer.pushFrame(canvas)
+    bump()
+  }, [frameBuffer, bump])
+
+  const handleExportSeq = useCallback(async () => {
+    if (!frameBuffer || !frameBuffer.framesRef.current.length) return
+    const frames = frameBuffer.framesRef.current
+    for (let i = 0; i < frames.length; i++) {
+      const link = document.createElement('a')
+      link.download = `sequence-frame-${String(i).padStart(3, '0')}.png`
+      link.href = frames[i].toDataURL('image/png')
+      link.click()
+      // Small delay to avoid browser blocking multiple downloads
+      await new Promise(res => setTimeout(res, 100))
+    }
+  }, [frameBuffer])
+
   // ── SECTION CONTENT ────────────────────────────────────────────────────────
   const renderSectionContent = (id) => {
     switch (id) {
+
+    case 'sequence': return (
+      <>
+        <div className="field-group">
+          <label className="field-label">Sequence Capture ({frameBuffer?.framesRef.current.length ?? 0} / {frameBuffer?.bufSize ?? 128})</label>
+          <div className="row2">
+            <button onClick={handleFreeze} title="Capture current raw frame and use it as a static source">❄ Freeze Frame</button>
+            <button onClick={handleAddToSeq} className="primary" title="Add current rendered frame (with effects) to sequence">✚ Add to Seq</button>
+          </div>
+          <div className="row3" style={{ marginTop: 4 }}>
+            <button onClick={() => handleManualFlip('h')} title="Flip horizontally (Mirror)" style={{ fontSize: 10 }}>Flip H</button>
+            <button onClick={() => handleManualFlip('v')} title="Flip vertically" style={{ fontSize: 10 }}>Flip V</button>
+            <button onClick={() => handleManualFlip('180')} title="Rotate 180" style={{ fontSize: 10 }}>180°</button>
+          </div>
+          <div className="row2" style={{ marginTop: 4 }}>
+            <button onClick={() => { frameBuffer?.clear(); bump() }} style={{ color: '#ff4444' }}>🗑 Clear</button>
+            <button onClick={() => { frameBuffer?.removeLast(); bump() }}>⌫ Undo</button>
+          </div>
+        </div>
+        <div className="field-group">
+          <label className="field-label">Playback</label>
+          <div className="row2">
+            <button onClick={() => { frameBuffer?.play(); bump() }} className={frameBuffer?.mode === 'playing' ? 'primary' : ''}>▶ Play</button>
+            <button onClick={() => { frameBuffer?.stop(); bump() }}>⏹ Stop</button>
+          </div>
+        </div>
+        <div className="field-group">
+          <label className="field-label">Export</label>
+          <button onClick={handleExportSeq}>💾 Download Sequence</button>
+        </div>
+        <div className="field-group">
+          <label className="field-label">Buffer Size</label>
+          <input type="range" min="1" max="256" value={frameBuffer?.bufSize ?? 128} 
+            onChange={e => { frameBuffer?.setBufSize(parseInt(e.target.value)); bump() }} />
+        </div>
+      </>
+    )
 
     case 'video': return (
       <>
@@ -952,6 +1054,11 @@ export default function Panel({
               {['320x240','640x480','1280x720','1920x1080'].map(r => <option key={r}>{r}</option>)}
             </select>
             <button onClick={handleWebcam} className={camActive ? 'primary' : ''}>{camActive ? '⏹ Stop' : '📷 Start'}</button>
+          </div>
+          <div className="row2" style={{ marginTop: 4 }}>
+            <button onClick={() => setWebcamFlipped(!webcamFlipped)} className={webcamFlipped ? 'primary' : ''} style={{ fontSize: 10 }}>
+              {webcamFlipped ? '⇠⇢ Flipped' : '⇢⇠ Mirror'}
+            </button>
           </div>
         </div>
         <div className="field-group">
@@ -1157,8 +1264,14 @@ export default function Panel({
       <>
         <div className="field-group">
           <label className="field-label">Resolution Scale {resScale}%</label>
-          <input type="range" min="10" max="100" step="5" value={resScale}
-            onChange={e => { const v = parseInt(e.target.value); window.RES_SCALE = v / 100; setResScale(v) }} />
+          <div className="row2">
+            <input type="range" min="10" max="100" step="5" value={resScale} style={{ flex: 1 }}
+              onChange={e => { const v = parseInt(e.target.value); window.RES_SCALE = v / 100; setResScale(v); window.FORCE_80X80 = false }} />
+            <button onClick={() => { window.FORCE_80X80 = !window.FORCE_80X80; setResScale(window.FORCE_80X80 ? 0 : 100) }}
+              style={{ background: resScale === 0 ? '#2d7a50' : '#444', color: '#fff', fontSize: 9, padding: '2px 6px' }}>
+              80x80
+            </button>
+          </div>
         </div>
         <div className="field-group">
           <label className="field-label">Input FPS {fpsLabel(inputFps)}</label>
@@ -1311,7 +1424,7 @@ export default function Panel({
       <div className="two-col">
         {/* ── LEFT COLUMN: all control sections ── */}
         <div className="col-left">
-          {['video','detect','output','audio','random','more'].map(id => {
+          {['video','sequence','detect','output','audio','random','more'].map(id => {
             const t = TABS.find(x => x.id === id); if (!t) return null
             return (
               <div key={id} ref={el => { sectionRefs.current[id] = el }} className="psec">

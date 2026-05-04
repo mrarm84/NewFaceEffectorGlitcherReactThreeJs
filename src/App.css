@@ -485,3 +485,73 @@ input[type="range"] {
   display: block;
   margin-bottom: 1px;
 }
+
+/* ─ Processing Editor ────────────────────────────────────── */
+.processing-editor {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 30%;
+  background: rgba(10, 10, 10, 0.95);
+  border-top: 1px solid #2d7a50;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 -10px 30px rgba(0,0,0,0.8);
+}
+
+.processing-editor:not(:hover) {
+  transform: translateY(calc(100% - 14px));
+}
+
+.processing-editor-scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: #2d7a50 #0a0a0a;
+}
+
+.processing-editor-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.processing-editor-scroll::-webkit-scrollbar-thumb {
+  background: #2d7a50;
+  border-radius: 3px;
+}
+
+.code-editor {
+  min-height: 100%;
+  background: transparent;
+}
+
+.code-editor textarea, .code-editor pre {
+  line-height: 1.6 !important;
+}
+
+/* Prism Tomorrow Theme Adjustments for Darker Background */
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #5c6370; }
+.token.punctuation { color: #abb2bf; }
+.token.namespace { opacity: .7; }
+.token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol, .token.deleted { color: #d19a66; }
+.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #98c379; }
+.token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #56b6c2; }
+.token.atrule, .token.attr-value, .token.keyword { color: #c678dd; }
+.token.function, .token.class-name { color: #61afef; }
+.token.regex, .token.important, .token.variable { color: #e06c75; }
+
+.processing-label {
+  position: absolute;
+  top: 0;
+  right: 20px;
+  background: #2d7a50;
+  color: #fff;
+  font-size: 8px;
+  padding: 2px 8px;
+  border-radius: 0 0 4px 4px;
+  pointer-events: none;
+  letter-spacing: 1px;
+  font-weight: bold;
+}

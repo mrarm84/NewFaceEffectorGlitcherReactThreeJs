@@ -49,10 +49,10 @@ export function useVideoSource() {
     setIsWebcam(false)
   }, [_stopCam])
 
-  const loadMediaFile = useCallback((file) => new Promise((resolve, reject) => {
+  const loadMediaFile = useCallback((fileOrUrl, isStatic = false) => new Promise((resolve, reject) => {
     _stopCam(); _stopScreen()
-    const url = URL.createObjectURL(file)
-    const isImg = file.type.startsWith('image/')
+    const url = typeof fileOrUrl === 'string' ? fileOrUrl : URL.createObjectURL(fileOrUrl)
+    const isImg = isStatic || (typeof fileOrUrl !== 'string' && fileOrUrl.type.startsWith('image/'))
 
     if (isImg) {
       const img = new Image()
@@ -65,12 +65,13 @@ export function useVideoSource() {
           videoWidth: img.width,
           videoHeight: img.height,
           readyState: 4,
+          currentTime: 0,
           play: () => {},
           pause: () => {},
           addEventListener: (name, cb) => { if (name === 'loadeddata') cb() },
           removeEventListener: () => {}
         }
-        _attach(dummy, file.name, false)
+        _attach(dummy, isStatic ? 'Frozen Frame' : (fileOrUrl.name || 'Image'), false)
         resolve(dummy)
       }
       img.onerror = () => reject(new Error('Image load failed'))

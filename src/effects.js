@@ -505,17 +505,24 @@ export class VertexJitter {
 
 // Returns the region(s) to apply pixel effects to based on mode
 function getTargetBoxes(allFaceLMs, allHandLMs, p) {
+  let boxes = [];
   if (window.PIXEL_TARGET_MODE === 'screen') {
     return [{ x: 0, y: 0, w: p.width, h: p.height }];
   }
-  if (window.FINGERNAILS_MODE) {
-    const boxes = [];
-    for (const hand of (allHandLMs ?? [])) {
-      boxes.push(...getFingerNailBoxes(hand, p));
-    }
-    if (boxes.length > 0) return boxes;
+  
+  // Include extra boxes from effects like FluidOrganism
+  if (window.EXTRA_FX_BOXES) {
+    boxes.push(...window.EXTRA_FX_BOXES);
   }
-  const boxes = [];
+
+  if (window.FINGERNAILS_MODE) {
+    const fboxes = [];
+    for (const hand of (allHandLMs ?? [])) {
+      fboxes.push(...getFingerNailBoxes(hand, p));
+    }
+    if (fboxes.length > 0) return fboxes;
+  }
+
   for (const landmarks of (allFaceLMs ?? [])) {
     const box = getFaceBox(landmarks, p);
     if (box) boxes.push(box);
@@ -1895,6 +1902,119 @@ const BAYER4 = [
   [15,  7, 13,  5],
 ];
 
+export class AsciifyP5 {
+  static label    = 'Asciify P5';
+  static category = 'PIXEL';
+  constructor() {
+    this.label    = AsciifyP5.label;
+    this.category = AsciifyP5.category;
+    this.params = {
+      gridMode:  { type: 'select', label: 'Grid Mode', options: [['size','Char Size'],['fixed','Fixed Grid']], default: 'size' },
+      charSize:  { label: 'Char Size',         min: 4,  max: 64,  step: 1,   default: 10  },
+      gridW:     { label: 'Grid Width',        min: 10, max: 320, step: 1,   default: 80  },
+      gridH:     { label: 'Grid Height',       min: 10, max: 240, step: 1,   default: 80  },
+      smooth:    { type: 'boolean', label: 'Smooth', default: false },
+      font:      { type: 'select', label: 'Font', options: [['monospace','Monospace'],['"Courier New", Courier, monospace','Courier'],['"Lucida Console", Monaco, monospace','Lucida'],['"Roboto Mono", monospace','Roboto Mono'],['Impact, charcoal, sans-serif','Impact']], default: 'monospace' },
+      mode:      { type: 'select', label: 'Renderer', options: [['brightness','Brightness'],['edge','Edge']], default: 'brightness' },
+      characters:{ type: 'text',   label: 'Chars', default: '@#S%?*+;:,. ' },
+      edgeChars: { type: 'text',   label: 'Edge Chars', default: '|\\-/|\\-/' },
+      colorMode: { type: 'select', label: 'Char Color', options: [['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
+      bgColorMode:{ type: 'select', label: 'BG Color', options: [['none','None'],['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
+      r:         { label: 'R',                 min: 0,  max: 255, step: 1,   default: 0   },
+      g:         { label: 'G',                 min: 0,  max: 255, step: 1,   default: 255 },
+      b:         { label: 'B',                 min: 0,  max: 255, step: 1,   default: 80  },
+      bgOpacity: { label: 'Opacity',           min: 0,  max: 255, step: 1,   default: 255 },
+      fillPct:   { label: 'Fill %',            min: 1,  max: 100, step: 1,   default: 100 },
+      invert:    { type: 'boolean', label: 'Invert', default: false },
+      threshold: { label: 'Edge Thr',          min: 5,  max: 100, step: 1,   default: 20  },
+    };
+    this.values = defaults(this.params);
+  }
+
+  apply(p, landmarks, handLandmarks) {
+    for (const box of getTargetBoxes(landmarks, handLandmarks, p)) {
+      const { x, y, w, h } = box;
+      const ctx = p.drawingContext;
+      const { gridMode, charSize, gridW, gridH, font, mode, characters, edgeChars, colorMode, bgColorMode, r, g, b, bgOpacity, fillPct, invert, threshold } = this.values;
+      
+      let cols, rows, cw, ch;
+      if (gridMode === 'fixed') {
+        cols = Math.max(1, Math.floor(gridW));
+        rows = Math.max(1, Math.floor(gridH));
+        cw = w / cols;
+        ch = h / rows;
+      } else {
+        const cs = Math.max(4, Math.floor(charSize));
+        cols = Math.floor(w / cs);
+        rows = Math.floor(h / cs);
+        cw = ch = cs;
+      }
+
+      const img = ctx.getImageData(x, y, w, h);
+      const d = img.data;
+
+      ctx.save();
+      ctx.font = `${ch}px ${font}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (this.values.smooth) p.smooth(); else p.noSmooth();
+
+      const chars = characters || ' ';
+      const eChars = edgeChars || '|\\-/|\\-/';
+
+      for (let r_idx = 0; r_idx < rows; r_idx++) {
+        for (let c_idx = 0; c_idx < cols; c_idx++) {
+          if (fillPct < 100 && Math.random() * 100 > fillPct) continue;
+
+          const cx2 = c_idx * cw;
+          const cy2 = r_idx * ch;
+          const centerX = Math.min(w - 1, Math.floor(cx2 + cw / 2));
+          const centerY = Math.min(h - 1, Math.floor(cy2 + ch / 2));
+          const si = (centerY * w + centerX) * 4;
+
+          // Background
+          if (bgColorMode !== 'none') {
+            if (bgColorMode === 'sampled') {
+              ctx.fillStyle = `rgba(${d[si]},${d[si+1]},${d[si+2]},${bgOpacity/255})`;
+            } else {
+              ctx.fillStyle = `rgba(0,0,0,${bgOpacity/255})`;
+            }
+            ctx.fillRect(x + cx2, y + cy2, cw, ch);
+          }
+          
+          let charToDraw = ' ';
+          let charColor = colorMode === 'sampled' ? `rgb(${d[si]},${d[si+1]},${d[si+2]})` : `rgb(${r},${g},${b})`;
+
+          if (mode === 'brightness') {
+            let br = (d[si] * 0.299 + d[si + 1] * 0.587 + d[si + 2] * 0.114) / 255;
+            if (invert) br = 1 - br;
+            charToDraw = chars[Math.floor(br * (chars.length - 1))];
+          } else {
+            const idx = (yy, xx) => (Math.min(h-1, Math.max(0, yy)) * w + Math.min(w-1, Math.max(0, xx))) * 4;
+            const getL = (yy, xx) => { const i = idx(yy, xx); return (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114); };
+            const gx = (getL(centerY-1, centerX+1) + 2*getL(centerY, centerX+1) + getL(centerY+1, centerX+1)) -
+                       (getL(centerY-1, centerX-1) + 2*getL(centerY, centerX-1) + getL(centerY+1, centerX-1));
+            const gy = (getL(centerY+1, centerX-1) + 2*getL(centerY+1, centerX) + getL(centerY+1, centerX+1)) -
+                       (getL(centerY-1, centerX-1) + 2*getL(centerY-1, centerX) + getL(centerY-1, centerX+1));
+            const mag = Math.sqrt(gx*gx + gy*gy);
+            if (mag > threshold * 4) {
+              const angle = Math.atan2(gy, gx) + Math.PI;
+              const charIdx = Math.floor((angle / (Math.PI * 2)) * eChars.length) % eChars.length;
+              charToDraw = eChars[charIdx];
+            }
+          }
+
+          if (charToDraw && charToDraw !== ' ') {
+            ctx.fillStyle = charColor;
+            ctx.fillText(charToDraw, x + cx2 + cw/2, y + cy2 + ch/2);
+          }
+        }
+      }
+      ctx.restore();
+    }
+  }
+}
+
 export class AsciiArt {
   static label    = 'ASCII Art';
   static category = 'PIXEL';
@@ -1902,13 +2022,20 @@ export class AsciiArt {
     this.label    = AsciiArt.label;
     this.category = AsciiArt.category;
     this.params = {
-      charSize:  { label: 'Char Size',         min: 4,  max: 24,  step: 1,   default: 8   },
-      margin:    { label: 'Margin',             min: 0,  max: 300, step: 1,   default: 0   },
-      r:         { label: 'Color R',           min: 0,  max: 255, step: 1,   default: 0   },
-      g:         { label: 'Color G',           min: 0,  max: 255, step: 1,   default: 255 },
-      b:         { label: 'Color B',           min: 0,  max: 255, step: 1,   default: 80  },
-      bgOpacity: { label: 'BG Dark',           min: 0,  max: 255, step: 1,   default: 210 },
-      colored:   { label: 'Colored (0=1=yes)', min: 0,  max: 1,   step: 1,   default: 0   },
+      gridMode:  { type: 'select', label: 'Grid Mode', options: [['size','Char Size'],['fixed','Fixed Grid']], default: 'size' },
+      charSize:  { label: 'Char Size',         min: 4,  max: 64,  step: 1,   default: 8   },
+      gridW:     { label: 'Grid Width',        min: 10, max: 320, step: 1,   default: 40  },
+      gridH:     { label: 'Grid Height',       min: 10, max: 240, step: 1,   default: 25  },
+      font:      { type: 'select', label: 'Font', options: [['monospace','Monospace'],['"Courier New", Courier, monospace','Courier'],['"Lucida Console", Monaco, monospace','Lucida'],['"Roboto Mono", monospace','Roboto Mono']], default: 'monospace' },
+      characters:{ type: 'text',   label: 'Chars', default: '@#S%?*+;:,. ' },
+      colorMode: { type: 'select', label: 'Char Color', options: [['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
+      bgColorMode:{ type: 'select', label: 'BG Color', options: [['none','None'],['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
+      r:         { label: 'R',                 min: 0,  max: 255, step: 1,   default: 0   },
+      g:         { label: 'G',                 min: 0,  max: 255, step: 1,   default: 255 },
+      b:         { label: 'B',                 min: 0,  max: 255, step: 1,   default: 80  },
+      bgOpacity: { label: 'Opacity',           min: 0,  max: 255, step: 1,   default: 210 },
+      fillPct:   { label: 'Fill %',            min: 1,  max: 100, step: 1,   default: 100 },
+      margin:    { label: 'Margin',            min: 0,  max: 300, step: 1,   default: 0   },
     };
     this.values = defaults(this.params);
   }
@@ -1920,29 +2047,59 @@ export class AsciiArt {
       const w   = Math.min(p.width  - x, box.w + mg * 2);
       const h   = Math.min(p.height - y, box.h + mg * 2);
       const ctx = p.drawingContext;
-      const cs = Math.max(4, Math.floor(this.values.charSize));
+      const { gridMode, charSize, gridW, gridH, font, characters, colorMode, bgColorMode, r, g, b, bgOpacity, fillPct } = this.values;
+
+      let cols, rows, cw, ch;
+      if (gridMode === 'fixed') {
+        cols = Math.max(1, Math.floor(gridW));
+        rows = Math.max(1, Math.floor(gridH));
+        cw = w / cols;
+        ch = h / rows;
+      } else {
+        const cs = Math.max(4, Math.floor(charSize));
+        cols = Math.floor(w / cs);
+        rows = Math.floor(h / cs);
+        cw = ch = cs;
+      }
+
       const img = ctx.getImageData(x, y, w, h);
       const d = img.data;
-      const { r, g, b, bgOpacity, colored } = this.values;
+      const chars = characters || '@#S%?*+;:,. ';
 
-      if (bgOpacity > 0) {
-        ctx.fillStyle = `rgba(0,0,0,${bgOpacity / 255})`;
-        ctx.fillRect(x, y, w, h);
-      }
-      ctx.font = `bold ${cs}px monospace`;
+      ctx.save();
+      ctx.font = `${ch}px ${font}`;
       ctx.textBaseline = 'top';
+      ctx.imageSmoothingEnabled = false;
 
-      for (let cy2 = 0; cy2 < h; cy2 += cs) {
-        for (let cx2 = 0; cx2 < w; cx2 += cs) {
-          const si = (Math.min(h - 1, cy2 + (cs >> 1)) * w + Math.min(w - 1, cx2 + (cs >> 1))) * 4;
+      for (let r_idx = 0; r_idx < rows; r_idx++) {
+        for (let c_idx = 0; c_idx < cols; c_idx++) {
+          if (fillPct < 100 && Math.random() * 100 > fillPct) continue;
+
+          const cx2 = c_idx * cw;
+          const cy2 = r_idx * ch;
+          const si = (Math.min(h - 1, Math.floor(cy2 + ch / 2)) * w + Math.min(w - 1, Math.floor(cx2 + cw / 2))) * 4;
+          
+          // Background
+          if (bgColorMode !== 'none') {
+            if (bgColorMode === 'sampled') {
+              ctx.fillStyle = `rgba(${d[si]},${d[si+1]},${d[si+2]},${bgOpacity/255})`;
+            } else {
+              ctx.fillStyle = `rgba(0,0,0,${bgOpacity/255})`;
+            }
+            ctx.fillRect(x + cx2, y + cy2, cw, ch);
+          }
+
           const br = (d[si] * 0.299 + d[si + 1] * 0.587 + d[si + 2] * 0.114) / 255;
-          const ch = ASCII_CHARS[Math.floor(br * (ASCII_CHARS.length - 1))];
-          ctx.fillStyle = colored > 0.5
+          const ch_char = chars[Math.floor(br * (chars.length - 1))];
+          
+          ctx.fillStyle = colorMode === 'sampled' 
             ? `rgb(${d[si]},${d[si + 1]},${d[si + 2]})`
             : `rgb(${r},${g},${b})`;
-          ctx.fillText(ch, x + cx2, y + cy2);
+            
+          ctx.fillText(ch_char, x + cx2, y + cy2);
         }
       }
+      ctx.restore();
     }
   }
 }
@@ -4868,6 +5025,227 @@ export class FaceCapFX {
 }
 
 
+export class FluidOrganism {
+  static label    = 'Fluid Organism';
+  static category = 'DRAW';
+  constructor() {
+    this.label    = FluidOrganism.label;
+    this.category = FluidOrganism.category;
+    this._t = 0;
+    this._lastPos = null;
+    this._vel = { x: 0, y: 0 };
+    this.params = {
+      look:      { label: 'Look',      type: 'select', default: 'tentacles', options: [['tentacles','Tentacles'],['blob','Total Blob'],['spiky','Spiky'],['flower','Flower']] },
+      tentacles: { label: 'Tentacles', min: 2, max: 24, step: 1, default: 8 },
+      length:    { label: 'Length',    min: 5, max: 100, step: 1, default: 30 },
+      segments:  { label: 'Segments',  min: 4, max: 30, step: 1, default: 15 },
+      rotSpeed:  { label: 'Rotation',  min: 0, max: 5,  step: 0.1, default: 1.2 },
+      fluidity:  { label: 'Fluidity',  min: 0.1, max: 3, step: 0.1, default: 1.5 },
+      thickness: { label: 'Thickness', min: 1, max: 50, step: 1, default: 12 },
+      color1:    { label: 'Color 1',   type: 'color', default: '#00ccff' },
+      color2:    { label: 'Color 2',   type: 'color', default: '#ff00ff' },
+      opacity:   { label: 'Opacity',   min: 0, max: 255, step: 1, default: 180 },
+    };
+    this.values = defaults(this.params);
+  }
+
+  apply(p) {
+    const v = this.values;
+    this._t += 0.02 * v.rotSpeed;
+
+    // Slow autonomous orbit around center
+    const cx = p.width / 2 + Math.cos(this._t * 0.7) * (p.width * 0.15);
+    const cy = p.height / 2 + Math.sin(this._t * 0.5) * (p.height * 0.15);
+
+    // Velocity tracking for ragdoll lag effect
+    if (this._lastPos) {
+      this._vel.x = p.lerp(this._vel.x, (cx - this._lastPos.x) * 0.4, 0.15);
+      this._vel.y = p.lerp(this._vel.y, (cy - this._lastPos.y) * 0.4, 0.15);
+    }
+    this._lastPos = { x: cx, y: cy };
+
+    // Report bounding box for pixel processing
+    const margin = v.thickness * 2 + v.segments * 5 + v.length;
+    window.EXTRA_FX_BOXES = window.EXTRA_FX_BOXES || [];
+    window.EXTRA_FX_BOXES.push({
+      x: cx - margin,
+      y: cy - margin,
+      w: margin * 2,
+      h: margin * 2
+    });
+
+    p.push();
+    p.strokeCap('ROUND');
+    p.strokeJoin('ROUND');
+
+    const c1 = p.color(v.color1 || '#00ccff');
+    const c2 = p.color(v.color2 || '#ff00ff');
+    const alpha = v.opacity ?? 180;
+    c1.a = alpha;
+    c2.a = alpha;
+
+    if (v.look === 'blob' || v.look === 'flower') {
+      p.noStroke();
+      p.fill(c1);
+      p.beginShape();
+      const outerPts = [];
+      for (let i = 0; i < v.tentacles; i++) {
+        const baseAngle = (i / v.tentacles) * p.TWO_PI + this._t;
+        let px = cx, py = cy;
+        for (let j = 1; j <= v.segments; j++) {
+          const freq = 0.5 * v.fluidity;
+          const amp = 0.4 * v.fluidity;
+          const wave = Math.sin(this._t * 3 + j * freq + i) * amp;
+          const angle = baseAngle + (v.look === 'flower' ? wave * 0.2 : wave) - (j * 0.05);
+          const lagX = this._vel.x * j * 0.8;
+          const lagY = this._vel.y * j * 0.8;
+          px += Math.cos(angle) * v.length - lagX;
+          py += Math.sin(angle) * v.length - lagY;
+        }
+        outerPts.push({ x: px, y: py });
+      }
+      
+      for (let i = 0; i < outerPts.length; i++) {
+        p.vertex(outerPts[i].x, outerPts[i].y);
+      }
+      p.endShape(p.CLOSE);
+
+      // Add a second layer for depth
+      p.fill(c2);
+      p.beginShape();
+      for (let i = 0; i < outerPts.length; i++) {
+        const pt = outerPts[i];
+        p.vertex(p.lerp(cx, pt.x, 0.6), p.lerp(cy, pt.y, 0.6));
+      }
+      p.endShape(p.CLOSE);
+
+    } else {
+      p.noFill();
+      for (let i = 0; i < v.tentacles; i++) {
+        const baseAngle = (i / v.tentacles) * p.TWO_PI + this._t;
+        const col = p.lerpColor(c1, c2, i / v.tentacles);
+        p.stroke(col);
+        
+        let px = cx, py = cy;
+        for (let j = 1; j <= v.segments; j++) {
+          const freq = 0.5 * v.fluidity;
+          const amp = 0.4 * v.fluidity;
+          const wave = Math.sin(this._t * 3 + j * freq + i) * amp;
+          const angle = baseAngle + wave - (j * 0.05);
+          
+          let thickTarget = 1;
+          if (v.look === 'spiky') thickTarget = 0.1;
+          
+          const thick = p.map(j, 1, v.segments, v.thickness, thickTarget);
+          p.strokeWeight(Math.max(0.1, thick));
+
+          const lagX = this._vel.x * j * 0.8;
+          const lagY = this._vel.y * j * 0.8;
+
+          const nextPx = px + Math.cos(angle) * v.length - lagX;
+          const nextPy = py + Math.sin(angle) * v.length - lagY;
+          
+          p.line(px, py, nextPx, nextPy);
+          px = nextPx;
+          py = nextPy;
+        }
+      }
+    }
+
+    // Draw core
+    p.noStroke();
+    p.fill(c1);
+    p.circle(cx, cy, v.thickness * 1.5);
+    p.fill(c2);
+    p.circle(cx, cy, v.thickness * 0.8);
+
+    p.pop();
+  }
+}
+
+export class CustomP5 {
+  static label    = 'Custom P5';
+  static category = 'DRAW';
+  constructor() {
+    this.label    = CustomP5.label;
+    this.category = CustomP5.category;
+    this._compiled = null;
+    this._lastCode = '';
+    this.params = {
+      code: { type: 'text', label: 'Code', default: 'p.noFill(); p.stroke(255,0,0); p.circle(p.width/2, p.height/2, 100);' },
+    };
+    this.values = defaults(this.params);
+  }
+  apply(p, faceLMs, handLMs, poseLMs, faceBS) {
+    if (this.values.code !== this._lastCode) {
+      try {
+        this._compiled = new Function('p', 'faceLMs', 'handLMs', 'poseLMs', 'faceBS', this.values.code);
+        this._lastCode = this.values.code;
+      } catch (err) {
+        console.warn('P5 Compile Error:', err.message);
+        this._compiled = null;
+      }
+    }
+    if (this._compiled) {
+      try {
+        this._compiled(p, faceLMs, handLMs, poseLMs, faceBS);
+      } catch (err) {
+        if (this._lastError !== err.message) {
+          console.warn('P5 Runtime Error:', err.message);
+          this._lastError = err.message;
+        }
+      }
+    }
+  }
+}
+
+export class Layer3D {
+  static label    = '3D Layer';
+  static category = 'LAYER';
+  constructor() {
+    this.label    = Layer3D.label;
+    this.category = Layer3D.category;
+    this.params = {
+      z:           { label: 'Depth (Z)', min: -500, max: 500, step: 1, default: 50 },
+      opacity:     { label: 'Opacity',  min: 0, max: 1, step: 0.01, default: 1.0 },
+      scale:       { label: 'Scale',    min: 0.1, max: 5, step: 0.1, default: 0.8 },
+      billboard:   { label: 'Billboard', type: 'bool', default: true },
+      rotationX:   { label: 'Rot X',    min: -3.14, max: 3.14, step: 0.01, default: 0 },
+      rotationY:   { label: 'Rot Y',    min: -3.14, max: 3.14, step: 0.01, default: 0 },
+      rotationZ:   { label: 'Rot Z',    min: -3.14, max: 3.14, step: 0.01, default: 0 },
+      clear2D:     { label: 'Clear 2D',  type: 'bool', default: true },
+    };
+    this.values = defaults(this.params);
+    this._offCanvas = null;
+  }
+
+  apply(p) {
+    const ctx = p.drawingContext;
+    const W = p.width, H = p.height;
+    
+    if (!this._offCanvas) {
+      this._offCanvas = document.createElement('canvas');
+    }
+    if (this._offCanvas.width !== W || this._offCanvas.height !== H) {
+      this._offCanvas.width = W; this._offCanvas.height = H;
+    }
+    
+    const octx = this._offCanvas.getContext('2d');
+    octx.clearRect(0, 0, W, H);
+    octx.drawImage(ctx.canvas, 0, 0);
+
+    window._THREE_LAYERS = window._THREE_LAYERS || [];
+    window._THREE_LAYERS.push({
+      canvas: this._offCanvas,
+      params: { ...this.values }
+    });
+
+    if (this.values.clear2D) {
+      ctx.clearRect(0, 0, W, H);
+    }
+  }
+}
+
 export const EFFECT_REGISTRY = [
   LayerMerger,
   TextOverlay, MagnifyGlass,
@@ -4878,11 +5256,14 @@ export const EFFECT_REGISTRY = [
   FaceMeshSurface, ReactiveWire,
   HandWireframe, HandFingernailDots, HandMeshSurface, HandObject,
   PoseSkeleton, PoseGlitch,
+  FluidOrganism,
   TileGlitch, GlitchLines, ChromaticAberration,
   Pixelate, ColorShift, Scanlines, NoiseEffect,
   PixelSort, VHSGlitch,
   MotionBlur, DepthOfField,
-  AsciiArt, Dither, AtkinsonDither, EdgeDetect, ComicPsychedelia, HalftoneDots, RasterFX,
+  AsciiArt, AsciifyP5, Dither, AtkinsonDither, EdgeDetect, ComicPsychedelia, HalftoneDots, RasterFX,
   HueSaturation, GhostTrail, FullGlitch, Vignette, FilmGrain, CRTScanlines, RasterWave,
+  CustomP5,
+  Layer3D,
 ];
 

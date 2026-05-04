@@ -9,6 +9,15 @@ import { useAudioReact  } from './hooks/useAudioReact'
 import { useFrameBuffer  } from './hooks/useFrameBuffer'
 import './App.css'
 
+import Editor from 'react-simple-code-editor'
+import { highlight, languages } from 'prismjs/components/prism-core'
+import 'prismjs/components/prism-clike'
+import 'prismjs/components/prism-javascript'
+import 'prismjs/themes/prism-tomorrow.css'
+
+// Handle potential CommonJS default export issue
+const CodeEditor = typeof Editor === 'function' ? Editor : (Editor.default || Editor)
+
 const BUILT_IN_MODELS = [
   '/models/objects/head_Avocado.glb',
   '/models/objects/head_BarramundiFish.glb',
@@ -34,6 +43,7 @@ export default function App() {
   const [bgColor, setBgColor]           = useState(() => localStorage.getItem('faceGlitcher_bgColor') || '#000000')
   const [disableDetection, setDisableDetection] = useState(false)
   const [previewFormat, setPreviewFormat] = useState(null) // null, 'A1', 'A2', 'A3', 'A4', 'ORYG'
+  const [p5Code, setP5Code] = useState(() => localStorage.getItem('faceGlitcher_p5Code') || '')
 
   const FORMAT_SIZES = {
     'A1': [7016, 9933],
@@ -46,6 +56,13 @@ export default function App() {
     localStorage.setItem('faceGlitcher_bgColor', bgColor)
     document.body.style.background = bgColor
   }, [bgColor])
+
+  useEffect(() => {
+    localStorage.setItem('faceGlitcher_p5Code', p5Code)
+    if (p5Code.trim()) {
+      setDisableDetection(true)
+    }
+  }, [p5Code])
 
   useEffect(() => { isWebcamRef.current = videoSource.isWebcam }, [videoSource.isWebcam])
 
@@ -156,6 +173,7 @@ export default function App() {
               isWebcamRef={isWebcamRef}
               bgColor={bgColor}
               previewFormat={previewFormat}
+              p5Code={p5Code}
               style={{
                 width:  '100%',
                 height: '100%',
@@ -166,6 +184,27 @@ export default function App() {
           </div>
         </div>
         {!modelsReady && !disableDetection && <div className="loading-overlay">Loading MediaPipe…</div>}
+
+        <div className="processing-editor">
+          <div className="processing-editor-scroll">
+            <CodeEditor
+              value={p5Code}
+              onValueChange={code => setP5Code(code)}
+              highlight={code => highlight(code, languages.javascript || languages.js)}
+              padding={15}
+              className="code-editor"
+              placeholder="// Paste Processing (p5.js) code here...
+// Use 'p' as the p5 object, e.g.: p.circle(p.width/2, p.height/2, 100);
+// Available: p, faceLMs, handLMs, poseLMs, faceBS"
+              style={{
+                fontFamily: '"Fira Code", "VT323", monospace',
+                fontSize: 13,
+                minHeight: '100%',
+              }}
+            />
+          </div>
+          <div className="processing-label">PROCESSING EDITOR</div>
+        </div>
 
         {previewFormat && (
           <div className="preview-indicator" style={{

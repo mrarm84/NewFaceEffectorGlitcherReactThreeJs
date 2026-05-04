@@ -26,6 +26,18 @@ export function makeP(ctx, width, height) {
     width, height,
     get drawingContext() { return ctx; },
 
+    background(r, g, b, a = 255) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (r !== undefined) {
+        ctx.fillStyle = _rgba(r, g, b, a);
+        ctx.fillRect(0, 0, width, height);
+      } else {
+        ctx.clearRect(0, 0, width, height);
+      }
+      ctx.restore();
+    },
+
     push() {
       ctx.save();
       _stack.push({ _fillStyle, _strokeStyle, _doFill, _doStroke, _lineWidth });
@@ -38,8 +50,24 @@ export function makeP(ctx, width, height) {
 
     noFill()                    { _doFill = false; },
     noStroke()                  { _doStroke = false; },
-    fill(r, g, b, a = 255)      { _doFill = true;   _fillStyle   = _rgba(r, g, b, a); },
-    stroke(r, g, b, a = 255)    { _doStroke = true;  _strokeStyle = _rgba(r, g, b, a); },
+    strokeCap(cap)              { ctx.lineCap = cap.toLowerCase(); },
+    strokeJoin(join)            { ctx.lineJoin = join.toLowerCase(); },
+    fill(r, g, b, a = 255)      {
+      _doFill = true;
+      if (r && typeof r === 'object') {
+        _fillStyle = _rgba(r.r, r.g, r.b, r.a);
+      } else {
+        _fillStyle = _rgba(r, g, b, a);
+      }
+    },
+    stroke(r, g, b, a = 255)    {
+      _doStroke = true;
+      if (r && typeof r === 'object') {
+        _strokeStyle = _rgba(r.r, r.g, r.b, r.a);
+      } else {
+        _strokeStyle = _rgba(r, g, b, a);
+      }
+    },
     strokeWeight(w)             { _lineWidth = w; ctx.lineWidth = w; },
 
     translate(x, y) { ctx.translate(x, y); },
@@ -88,8 +116,15 @@ export function makeP(ctx, width, height) {
       if (v !== undefined) ctx.textBaseline = vm[v] ?? v ?? 'alphabetic';
     },
 
-    beginShape() { ctx.beginPath(); },
-    vertex(x, y) { ctx.lineTo(x, y); },
+    beginShape() { ctx.beginPath(); p._firstVertex = true; },
+    vertex(x, y) { 
+      if (p._firstVertex) {
+        ctx.moveTo(x, y);
+        p._firstVertex = false;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    },
     endShape(close) {
       if (close === 'CLOSE' || close === p.CLOSE) ctx.closePath();
       _applyFill(); _applyStroke();
@@ -98,11 +133,39 @@ export function makeP(ctx, width, height) {
     },
 
     map(n, a, b, c, d)   { return c + (d - c) * ((n - a) / (b - a)); },
+    lerp(a, b, t)        { return a + (b - a) * t; },
     constrain(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); },
     dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); },
 
+    smooth() { ctx.imageSmoothingEnabled = true; },
+    noSmooth() { ctx.imageSmoothingEnabled = false; },
+    drawingContext: ctx,
+
+    color(r, g, b, a = 255) {
+      if (typeof r === 'string') {
+        // Simple hex to rgb
+        if (r.startsWith('#')) {
+          const hex = r.slice(1);
+          const big = parseInt(hex.length === 3 ? hex.split('').map(x=>x+x).join('') : hex, 16);
+          return { r: (big >> 16) & 255, g: (big >> 8) & 255, b: big & 255, a };
+        }
+        return { r: 255, g: 255, b: 255, a, _str: r };
+      }
+      return { r, g, b, a };
+    },
+
+    lerpColor(c1, c2, t) {
+      return {
+        r: p.lerp(c1.r, c2.r, t),
+        g: p.lerp(c1.g, c2.g, t),
+        b: p.lerp(c1.b, c2.b, t),
+        a: p.lerp(c1.a, c2.a, t)
+      };
+    },
+
     CENTER: 'CENTER', LEFT: 'LEFT', RIGHT: 'RIGHT',
     TOP: 'TOP', BOTTOM: 'BOTTOM', CLOSE: 'CLOSE',
+    TWO_PI: Math.PI * 2,
   };
 
   return p;

@@ -26,11 +26,14 @@ function _faceArea(lms) {
 
 const EffectsCanvas = forwardRef(function EffectsCanvas(
   { videoRef, landmarkRef, effectsChainRef, audioHook, frameBuffer, isWebcamRef: isWebcamProp,
-    width: propW, height: propH, style, bgColor, previewFormat },
+    width: propW, height: propH, style, bgColor, previewFormat, p5Code },
   ref
 ) {
   const canvasRef = useRef(null)
   const rafRef    = useRef(null)
+  const p5Compiled     = useRef(null)
+  const p5LastCode     = useRef('')
+  const p5LastError    = useRef(null)
   const globalRotAngle = useRef(0)
   const lastOutputMs   = useRef(0)
   const lastInputMs    = useRef(0)
@@ -128,7 +131,11 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
       }
 
       let W, H
-      if (previewFormat) {
+      if (window.FORCE_80X80) {
+        W = 80
+        H = 80
+        window.EXPORT_SCALE = 1
+      } else if (previewFormat) {
         const isPortrait = srcH > srcW
         if (previewFormat === 'ORYG') {
           W = Math.round(srcW * resScale)
@@ -188,6 +195,7 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
     }
 
     function renderFrame(ctx, W, H, skipEffects = false, inputReady = true, skipClear = false) {
+      window.EXTRA_FX_BOXES = []
       const nowMs = performance.now()
       const video = videoRef?.current
 
@@ -268,6 +276,33 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
 
       // Apply effects chain
       const p = makeP(ctx, W, H)
+
+      if (p5Code && p5Code !== p5LastCode.current) {
+        try {
+          p5Compiled.current = new Function('p', 'faceLMs', 'handLMs', 'poseLMs', 'faceBS', p5Code)
+          p5LastCode.current = p5Code
+          p5LastError.current = null
+        } catch (err) {
+          console.warn('Processing Compile Error:', err.message)
+          p5Compiled.current = null
+          p5LastError.current = err.message
+        }
+      } else if (!p5Code) {
+        p5Compiled.current = null
+        p5LastCode.current = ''
+      }
+
+      if (p5Compiled.current) {
+        try {
+          p5Compiled.current(p, allFaceLMs, allHandLMs, poseLMs, faceBS)
+        } catch (err) {
+          if (p5LastError.current !== err.message) {
+            console.warn('Processing Runtime Error:', err.message)
+            p5LastError.current = err.message
+          }
+        }
+      }
+
       const chain = effectsChainRef?.current ?? []
       const isPuppet = e => e.label === 'Puppet FX' || e.label === 'Puppet Model'
 
@@ -617,6 +652,7 @@ const EffectsCanvas = forwardRef(function EffectsCanvas(
         objectFit: 'contain',
         pointerEvents: 'auto',
         display: 'block',
+        imageRendering: 'pixelated',
         ...style
       }}
     />

@@ -5,7 +5,7 @@ export function useFrameBuffer() {
   const framesRef   = useRef([]);
   const playIdxRef  = useRef(0);
   const [mode, setMode]     = useState('idle');   // 'idle' | 'recording' | 'playing'
-  const [bufSize, setBufSize] = useState(30);
+  const [bufSize, setBufSize] = useState(128);
 
   const record = useCallback(() => {
     framesRef.current = [];
@@ -26,11 +26,23 @@ export function useFrameBuffer() {
     window.FRAME_BUF_MODE = 'idle';
   }, []);
 
+  const clear = useCallback(() => {
+    framesRef.current = [];
+    playIdxRef.current = 0;
+    setMode('idle');
+    window.FRAME_BUF_MODE = 'idle';
+  }, []);
+
+  const removeLast = useCallback(() => {
+    framesRef.current.pop();
+  }, []);
+
   // Called by EffectsCanvas each frame during 'recording'
   const pushFrame = useCallback((canvas) => {
     const fc = document.createElement('canvas');
     fc.width = canvas.width; fc.height = canvas.height;
-    fc.getContext('2d').drawImage(canvas, 0, 0);
+    const fctx = fc.getContext('2d');
+    fctx.drawImage(canvas, 0, 0);
     framesRef.current.push(fc);
     if (framesRef.current.length >= bufSize) {
       playIdxRef.current = 0;

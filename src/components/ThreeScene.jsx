@@ -71,8 +71,66 @@ function GlbModel({ url, morphRef }) {
 // ── Scene root (inside Canvas) ────────────────────────────────────────────────
 function SceneContent({ glbUrl, landmarkRef }) {
   const morphRef = useRef(null)
+  const sceneRef = useRef(null)
+  const layerPlanes = useRef([]) // Array of { mesh, texture }
 
-  useFrame(() => {
+  useFrame((state) => {
+    const { scene, camera } = state;
+    sceneRef.current = scene;
+    
+    // ── Handle 3D Layers ───────────────────────────────────────────────────
+    const layers = window._THREE_LAYERS || [];
+    
+    layers.forEach((layer, i) => {
+      let lp = layerPlanes.current[i];
+      if (!lp) {
+        const tex = new THREE.CanvasTexture(layer.canvas);
+        const mat = new THREE.MeshBasicMaterial({ 
+          map: tex, 
+          transparent: true, 
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: false, // Don't write to depth buffer to avoid sorting issues with multiple transparent sheets
+          blending: THREE.NormalBlending
+        });
+        const geom = new THREE.PlaneGeometry(1, 1);
+        const mesh = new THREE.Mesh(geom, mat);
+        scene.add(mesh);
+        lp = { mesh, texture: tex };
+        layerPlanes.current[i] = lp;
+      }
+      
+      const { mesh, texture } = lp;
+      const { z, opacity, scale, billboard, rotationX, rotationY, rotationZ } = layer.params;
+      
+      texture.needsUpdate = true;
+      mesh.visible = true;
+      
+      // Position: 0,0,0 is world center. Camera is usually at +Z.
+      // Spread them along the Z axis relative to the center.
+      mesh.position.set(0, 0, z / 100); 
+      
+      // Scaling: Calculate size to roughly fill the screen at Z=0
+      // 1280px width -> ~4 units wide at distance 5
+      const baseScale = layer.canvas.width / 320; 
+      const aspect = layer.canvas.width / layer.canvas.height;
+      mesh.scale.set(scale * baseScale, (scale * baseScale) / aspect, 1);
+      
+      if (billboard) {
+        mesh.quaternion.copy(camera.quaternion);
+      } else {
+        mesh.rotation.set(rotationX, rotationY, rotationZ);
+      }
+      
+      mesh.material.opacity = opacity;
+    });
+
+    for (let i = layers.length; i < layerPlanes.current.length; i++) {
+      if (layerPlanes.current[i]) layerPlanes.current[i].mesh.visible = false;
+    }
+    window._THREE_LAYERS = [];
+
+    // ── Original Face Landmark Logic ────────────────────────────────────────
     const inf = morphRef.current
     if (!inf) return
 
@@ -82,7 +140,6 @@ function SceneContent({ glbUrl, landmarkRef }) {
     const m = computeMorphValues(face)
     if (!m) return
 
-    // inf[0] = left eye, inf[1] = right eye, inf[2] = jaw — adjust indices for your GLB
     if (inf.length > 0) inf[0] = THREE.MathUtils.lerp(inf[0], m.leftEye,  0.2)
     if (inf.length > 1) inf[1] = THREE.MathUtils.lerp(inf[1], m.rightEye, 0.2)
     if (inf.length > 2) inf[2] = THREE.MathUtils.lerp(inf[2], m.jaw,      0.2)
@@ -117,7 +174,7 @@ export default function ThreeScene({ glbUrl = null, landmarkRef, showStats = fal
     <Canvas
       camera={{ position: [-1.8, 0.8, 3], fov: 45, near: 1, far: 20 }}
       gl={{ toneMapping: THREE.ACESFilmicToneMapping, antialias: true, preserveDrawingBuffer: true }}
-      style={{ background: bgColor }}
+      style={{ background: bgColor, imageRendering: 'pixelated' }}
     >
       <SceneContent glbUrl={glbUrl} landmarkRef={landmarkRef} />
       {showStats && <Stats />}
