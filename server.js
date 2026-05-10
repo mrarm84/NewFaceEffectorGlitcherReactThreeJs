@@ -15,6 +15,7 @@ const __dirname  = path.dirname(__filename);
 
 const PORT = 8443;
 const ROOT = path.join(__dirname, 'dist');
+const SHADER_DIR = path.join(__dirname, 'public', 'shaders');
 
 const MIME = {
   '.html': 'text/html',
@@ -40,6 +41,95 @@ const MIME = {
 async function serve(req, res) {
   let urlPath = req.url.split('?')[0];
   if (urlPath === '/' || urlPath === '') urlPath = '/index.html';
+
+  const titleize = (value) => value
+    .replace(/\.[^.]+$/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, c => c.toUpperCase()) || 'Shader';
+
+  const readShaderFiles = () => {
+    const exts = new Set(['.json', '.glsl', '.frag', '.fs']);
+    const entries = [];
+    if (!fs.existsSync(SHADER_DIR)) return entries;
+
+    for (const file of fs.readdirSync(SHADER_DIR)) {
+      if (!exts.has(path.extname(file).toLowerCase())) continue;
+      const full = path.join(SHADER_DIR, file);
+      const ext = path.extname(file).toLowerCase();
+      const stem = path.basename(file, ext);
+      try {
+        if (ext === '.json') {
+          const parsed = JSON.parse(fs.readFileSync(full, 'utf-8'));
+          const list = Array.isArray(parsed) ? parsed : [parsed];
+          for (const item of list) {
+            if (!item?.code) continue;
+            entries.push({
+              name: item.name ?? titleize(stem),
+              file,
+              code: item.code,
+            });
+          }
+        } else {
+          entries.push({
+            name: titleize(stem),
+            file,
+            code: fs.readFileSync(full, 'utf-8'),
+          });
+        }
+      } catch (e) {
+        console.error(`Error reading shader file ${file}`, e);
+      }
+    }
+
+    return entries.sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  if (urlPath === '/api/shaders' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    });
+    res.end(JSON.stringify(readShaderFiles()));
+    return;
+  }
+
+  if (urlPath === '/api/shaders' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const shader = JSON.parse(body);
+        if (!shader?.name || !shader?.code) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing shader name or code' }));
+          return;
+        }
+        fs.mkdirSync(SHADER_DIR, { recursive: true });
+        const safeName = shader.name
+          .toString()
+          .trim()
+          .replace(/[^a-z0-9]+/gi, '-')
+          .replace(/^-+|-+$/g, '')
+          .toLowerCase() || 'shader';
+        const fileName = `${safeName}.json`;
+        const targetPath = path.join(SHADER_DIR, fileName);
+        fs.writeFileSync(targetPath, JSON.stringify({ name: shader.name, code: shader.code }, null, 2));
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cross-Origin-Opener-Policy': 'same-origin',
+          'Cross-Origin-Embedder-Policy': 'require-corp',
+        });
+        res.end(JSON.stringify({ success: true, file: fileName }));
+      } catch (e) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
 
   // ── YouTube proxy via yt-dlp ──────────────────────────────────────────────
   if (urlPath === '/api/yt-stream') {

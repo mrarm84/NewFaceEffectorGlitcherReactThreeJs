@@ -205,8 +205,7 @@ function ModelRow({ label, status, ready, onLoad }) {
 // ParamsEditor — fully uncontrolled, zero React re-renders during slider drag
 // Values live in effect.values (plain JS object), canvas reads them directly.
 // We only touch React state for structural changes (pin/rndSine toggle, select, file).
-function ParamsEditor({ effect, onChange, onRndSineChanged }) {
-  const [pinVer, setPinVer] = useState(0)   // only re-render when pin/rndSine state changes
+function ParamsEditor({ effect, onChange, onRndSineChanged, pinVer, setPinVer }) {
   const labelRefs  = useRef({})             // span elements showing numeric value
   const sliderRefs = useRef({})             // range input elements (for sine/smooth updates)
 
@@ -246,21 +245,62 @@ function ParamsEditor({ effect, onChange, onRndSineChanged }) {
           if (def.type === 'boolean') return (
             <div key={key} className="param-row span2">
               <label className="toggle" style={{ padding: '4px 0' }}>
-                <input type="checkbox" defaultChecked={!!val}
+                <input key={key === 'mouseRotate' ? `${key}-${effect.values.shader ?? 'custom'}` : key}
+                  type="checkbox"
+                  defaultChecked={!!val}
+                  disabled={!!effect._mouseRotateDisabled && key === 'mouseRotate'}
                   onChange={e => { effect.values[key] = e.target.checked; onChange() }} />
                 <span style={{ fontSize: 10, color: '#aaa' }}>{def.label}</span>
               </label>
             </div>
           )
 
-          if (def.type === 'text') return (
-            <div key={key} className="param-row span2">
-              <div className="param-label">{def.label}</div>
-              <input type="text" defaultValue={(val ?? '').toString()}
-                onBlur={e => { effect.values[key] = e.target.value; onChange() }}
-                style={{ width: '100%' }} />
-            </div>
-          )
+          if (def.type === 'text') {
+            const isShaderCode = effect.label === 'Shader FX' && key === 'code'
+            return (
+              <div key={key} className="param-row span2">
+                <div className="param-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  {def.label}
+                  {isShaderCode && (
+                    <button 
+                      onClick={async () => {
+                        const name = prompt('Shader Name:', effect.values.shader === 'custom' ? '' : effect.values.shader)
+                        if (!name) return
+                        const res = await fetch('/api/shaders', {
+                          method: 'POST',
+                          body: JSON.stringify({ name, code: effect.values.code })
+                        })
+                        if (res.ok) {
+                          alert('Shader saved!')
+                          if (effect._loadShaders) await effect._loadShaders()
+                          setPinVer(v => v + 1) // Force re-render of options
+                          onChange()
+                        }
+                      }}
+                      style={{ fontSize: 9, padding: '1px 4px' }}
+                    >💾 Save</button>
+                  )}
+                </div>
+                {isShaderCode ? (
+                  <textarea 
+                    defaultValue={(val ?? '').toString()}
+                    onChange={e => { effect.values[key] = e.target.value }}
+                    onBlur={() => onChange()}
+                    placeholder="void main() { ... }"
+                    style={{ 
+                      width: '100%', minHeight: 160, background: '#050505', color: '#44ff44', 
+                      border: '1px solid #333', fontSize: 10, fontFamily: 'monospace', 
+                      padding: 4, resize: 'vertical' 
+                    }} 
+                  />
+                ) : (
+                  <input type="text" defaultValue={(val ?? '').toString()}
+                    onBlur={e => { effect.values[key] = e.target.value; onChange() }}
+                    style={{ width: '100%' }} />
+                )}
+              </div>
+            )
+          }
 
           if (def.type === 'file') return (
             <div key={key} className="param-row span2">
@@ -397,6 +437,13 @@ export default function Panel({
       tabBodyRef.current.scrollTop = savedScrollRef.current
     }
   })
+
+  useEffect(() => {
+    const onShadersUpdated = () => bump()
+    window.addEventListener('shader-shaders-updated', onShadersUpdated)
+    return () => window.removeEventListener('shader-shaders-updated', onShadersUpdated)
+  }, [bump])
+
   const sectionRefs = useRef({})
   const toggleSection = useCallback((id) => {
     setSectionsOpen(s => {
@@ -878,6 +925,10 @@ export default function Panel({
       const EC = EFFECT_REGISTRY.find(c => c.label === saved.label); if (!EC) continue
       const ef = new EC()
       ef.values = { ...ef.values, ...saved.values }
+      if (ef.label === 'Load Object 3D') {
+        if (ef.values.wireStyle === 'Solid') ef.values.wireStyle = 'Normal'
+        if (ef.values.wireStyle === 'Dashed') ef.values.wireStyle = 'Striped'
+      }
       ef.blendMode = saved.blendMode ?? 'source-over'
       ef.enabled   = saved.enabled !== false
       ef.locked    = saved.locked === true
@@ -890,6 +941,7 @@ export default function Panel({
     setSelectedIdx(chain.length > 0 ? 0 : -1)
 
     const gs = preset.globalSettings ?? {}
+    const isWorkingModelUrl = (value) => !value || !value.startsWith('/models/objects/') || (modelList ?? []).includes(value)
     const set = (key, setter, winKey, val) => {
       if (val === undefined) return
       if (winKey) window[winKey] = val
@@ -915,7 +967,7 @@ export default function Panel({
     if (gs.resScale !== undefined) { window.RES_SCALE = gs.resScale / 100; setResScale(gs.resScale) }
     if (gs.audioReact !== undefined) { window.AUDIO_REACT = gs.audioReact; setAudioReact(gs.audioReact) }
     if (gs.sineSpeed  !== undefined) { sineSpeedRef.current = gs.sineSpeed; setSineSpeed(gs.sineSpeed) }
-    if (gs.glbUrl     !== undefined) { setGlbUrl(gs.glbUrl) }
+    if (gs.glbUrl     !== undefined) { setGlbUrl(isWorkingModelUrl(gs.glbUrl) ? gs.glbUrl : null) }
 
     // Restore sine state
     if (gs.sineActive !== undefined && gs.sineActive !== sineActiveRef.current) toggleSine()

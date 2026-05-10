@@ -1,6 +1,8 @@
 // effects.js — Visual effect definitions
 // Each class: label, category, params, values, apply(p, faceLandmarks, handLandmarks)
 
+import { MODEL_OPTIONS } from './modelAssets'
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getFaceBox(landmarks, p) {
@@ -1894,7 +1896,17 @@ export class HeadObject {
 // RASTER / CREATIVE EFFECTS
 // ════════════════════════════════════════════════════════════════════════════
 
-const ASCII_CHARS = '@#S%?*+;:,. ';
+const ASCII_CHARSETS = {
+  ascii: '@#S%?*+;:,. ',
+  c64: '█▓▒░▝▘▗▖▞▚▛▜▙▟▀▄▌▐',
+  petscii: '█▓▒░╱╲╳╴╶╷╵┌┐└┘├┤┬┴┼═║',
+  block: '█▓▒░▉▊▋▌▍▎▏▀▄▌▐',
+};
+
+function resolveAsciiChars(setName, customChars, fallback = ASCII_CHARSETS.ascii) {
+  if (setName === 'custom') return (customChars && customChars.length) ? customChars : fallback;
+  return ASCII_CHARSETS[setName] || fallback;
+}
 const BAYER4 = [
   [ 0,  8,  2, 10],
   [12,  4, 14,  6],
@@ -1916,6 +1928,13 @@ export class AsciifyP5 {
       smooth:    { type: 'boolean', label: 'Smooth', default: false },
       font:      { type: 'select', label: 'Font', options: [['monospace','Monospace'],['"Courier New", Courier, monospace','Courier'],['"Lucida Console", Monaco, monospace','Lucida'],['"Roboto Mono", monospace','Roboto Mono'],['Impact, charcoal, sans-serif','Impact']], default: 'monospace' },
       mode:      { type: 'select', label: 'Renderer', options: [['brightness','Brightness'],['edge','Edge']], default: 'brightness' },
+      charset:   { type: 'select', label: 'Character Set', options: [
+        ['ascii', 'ASCII'],
+        ['c64', 'C64'],
+        ['petscii', 'PETSCII'],
+        ['block', 'Block / Console'],
+        ['custom', 'Custom'],
+      ], default: 'c64' },
       characters:{ type: 'text',   label: 'Chars', default: '@#S%?*+;:,. ' },
       edgeChars: { type: 'text',   label: 'Edge Chars', default: '|\\-/|\\-/' },
       colorMode: { type: 'select', label: 'Char Color', options: [['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
@@ -1959,7 +1978,7 @@ export class AsciifyP5 {
       ctx.textBaseline = 'middle';
       if (this.values.smooth) p.smooth(); else p.noSmooth();
 
-      const chars = characters || ' ';
+      const chars = resolveAsciiChars(this.values.charset, characters, ' ');
       const eChars = edgeChars || '|\\-/|\\-/';
 
       for (let r_idx = 0; r_idx < rows; r_idx++) {
@@ -2027,6 +2046,13 @@ export class AsciiArt {
       gridW:     { label: 'Grid Width',        min: 10, max: 320, step: 1,   default: 40  },
       gridH:     { label: 'Grid Height',       min: 10, max: 240, step: 1,   default: 25  },
       font:      { type: 'select', label: 'Font', options: [['monospace','Monospace'],['"Courier New", Courier, monospace','Courier'],['"Lucida Console", Monaco, monospace','Lucida'],['"Roboto Mono", monospace','Roboto Mono']], default: 'monospace' },
+      charset:   { type: 'select', label: 'Character Set', options: [
+        ['ascii', 'ASCII'],
+        ['c64', 'C64'],
+        ['petscii', 'PETSCII'],
+        ['block', 'Block / Console'],
+        ['custom', 'Custom'],
+      ], default: 'c64' },
       characters:{ type: 'text',   label: 'Chars', default: '@#S%?*+;:,. ' },
       colorMode: { type: 'select', label: 'Char Color', options: [['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
       bgColorMode:{ type: 'select', label: 'BG Color', options: [['none','None'],['fixed','Fixed'],['sampled','Sampled']], default: 'fixed' },
@@ -2064,7 +2090,7 @@ export class AsciiArt {
 
       const img = ctx.getImageData(x, y, w, h);
       const d = img.data;
-      const chars = characters || '@#S%?*+;:,. ';
+      const chars = resolveAsciiChars(this.values.charset, characters);
 
       ctx.save();
       ctx.font = `${ch}px ${font}`;
@@ -4349,31 +4375,8 @@ export class LoadObject3D {
     this.params = {
       modelFile: { type: 'file', label: 'Load model file', accept: '.glb,.gltf,.fbx,.obj' },
       modelName: { type: 'select', label: 'From folder', options: [
-        '— pick file above —',
-        'animal_AlphaBlendModeTest.glb', 'animal_BoxVertexColors.glb', 'animal_Buggy.glb',
-        'animal_Corset.glb', 'animal_EmissiveStrengthTest.glb', 'animal_RiggedFigure.glb',
-        'antenna_BoxAnimated.glb', 'antenna_BoxVertexColors.glb', 'antenna_BoxWithoutIndices.glb', 'antenna_Corset.glb',
-        'antenna_Lantern.glb', 'antenna_SmilingFace.glb',
-        'bird_AnimatedMorphCube.glb', 'bird_Buggy.glb', 'bird_CesiumMan.glb',
-        'bird_DirectionalLight.glb', 'bird_Fox.glb', 'bird_SmilingFace.glb',
-        'cat_AnimatedMorphSphere.glb', 'cat_AttenuationTest.glb', 'cat_CesiumMilkTruck.glb',
-        'cat_InterpolationTest.glb', 'cat_Monster.glb',
-        'dog_AlphaBlendModeTest.glb', 'dog_AntiqueCamera.glb',
-        'dog_CesiumMan.glb', 'dog_Fox.glb', 'dog_GearboxAssy.glb', 'dog_GlamVelvetSofa.glb',
-        'fish_AnimatedMorphSphere.glb', 'fish_CarbonFibre.glb',
-        'fish_CesiumMilkTruck.glb', 'fish_Duck.glb', 'fish_GearboxAssy.glb', 'fish_WalkingLady.glb',
-        'head_Avocado.glb', 'head_BarramundiFish.glb',
-        'head_BoomBox.glb', 'head_ClearCoatTest.glb', 'head_IridescenceSuzanne.glb', 'head_Lantern.glb',
-        'head_RiggedFigure.glb',
-        'medusa_BoxTextured.glb', 'medusa_CesiumMilkTruck.glb', 'medusa_DirectionalLight.glb', 'medusa_Duck.glb',
-        'medusa_MaterialsVariantsShoe.glb', 'medusa_WalkingLady.glb', 'octopus_2CylinderEngine.glb', 'octopus_BoxTexturedNonPowerOfTwo.glb',
-        'octopus_BoxWithoutIndices.glb', 'octopus_ClearCoatTest.glb', 'octopus_DragonAttenuation.glb', 'octopus_MetalRoughSpheres.glb',
-        'octopus_Monster.glb', 'radar_BoxInterleaved.glb', 'radar_BoxSemantics.glb', 'radar_CesiumMan.glb',
-        'radar_DamagedHelmet.glb', 'radar_LightsPunctualLamp.glb', 'radar_VC.glb',
-        'satellite_BarramundiFish.glb', 'satellite_BoomBox.glb', 'satellite_BoxSemantics.glb',
-        'satellite_BoxTextured.glb', 'satellite_ClearcoatWicker.glb', 'satellite_IridescentDishWithOlives.glb', 'satellite_RiggedSimple.glb',
-        'skull_2CylinderEngine.glb', 'skull_AttenuationTest.glb', 'skull_Avocado.glb', 'skull_ClearCoatCarPaint.glb',
-        'skull_IridescenceLamp.glb', 'skull_IridescenceSuzanne.glb', 'skull_ReciprocatingSaw.glb'
+        ['— pick file above —', '— pick file above —'],
+        ...MODEL_OPTIONS,
       ], noRandom: true },
       scale:      { label: 'Scale',           min: 0.01, max: 12.5, step: 0.01, default: 1.0,  noRandom: true },
       rotX:       { label: 'Rot X (deg)',     min: -180, max: 180,  step: 1,    default: 0    },
@@ -4386,7 +4389,7 @@ export class LoadObject3D {
       rollSens:   { label: 'Roll Sens',       min: 0.0,  max: 3.0,  step: 0.1,  default: 1.0  },
       smoothing:  { label: 'Smoothing',       min: 0.0,  max: 0.95, step: 0.05, default: 0.5, noRandom: true },
       handSnap:   { label: 'Hand snap speed', min: 0.01, max: 1.0,  step: 0.01, default: 0.12, noRandom: true },
-      wireStyle:  { type: 'select', label: 'Wire Style', options: ['Solid', 'Dashed', 'Dotted'], default: 'Solid', noRandom: true },
+      wireStyle:  { type: 'select', label: 'Wire Style', options: ['Normal', 'Dotted', 'Striped'], default: 'Normal', noRandom: true },
       wireWidth:  { label: 'Wire Width',        min: 0.1,  max: 10,   step: 0.1,  default: 1.0  },
       wireR:      { label: 'Wire R',            min: 0,    max: 255,  step: 1,    default: 255  },
       wireG:      { label: 'Wire G',            min: 0,    max: 255,  step: 1,    default: 255  },
@@ -4394,6 +4397,7 @@ export class LoadObject3D {
       wireAlpha:  { label: 'Wire Opacity',      min: 0,    max: 255,  step: 1,    default: 255  },
       wireDash:   { label: 'Dash Size',         min: 0.01, max: 0.5,  step: 0.01, default: 0.05 },
       wireGap:    { label: 'Gap Size',          min: 0.01, max: 0.5,  step: 0.01, default: 0.02 },
+      wireAnimate:{ type: 'boolean', label: 'Animate wire style', default: false, noRandom: true },
       surfMode:   { type: 'select', label: 'Surface Mode', options: ['Normal', 'Ghost', 'X-Ray', 'Hidden'], default: 'Normal', noRandom: true },
       surfAlpha:  { label: 'Surface Opacity',   min: 0,    max: 1,    step: 0.02, default: 1.0  },
       opacity:    { label: 'Layer Opacity',     min: 0,    max: 1,    step: 0.01, default: 1.0  },
@@ -4415,6 +4419,7 @@ export class LoadObject3D {
     this._poseSmooth = { yaw: 0, pitch: 0, roll: 0 };  // smoothed head rotation
     this._folderFiles = [];   // cached list from /api/objects
     this._folderFetched = false;
+    this._t = 0;
   }
 
   // ── Compute head yaw/pitch/roll from face landmarks ────────────────────────
@@ -4445,7 +4450,7 @@ export class LoadObject3D {
 
   // ── Lazy Three.js init ─────────────────────────────────────────────────────
   async _initThree(W, H) {
-    let THREE, GLTFLoader, DRACOLoader, KTX2Loader, FBXLoader, OBJLoader, MeshoptDecoder;
+    let THREE, GLTFLoader, DRACOLoader, KTX2Loader, FBXLoader, OBJLoader, MeshoptDecoder, LineSegments2, WireframeGeometry2, LineMaterial;
     try {
       THREE = await import('three');
       ({ GLTFLoader }      = await import('three/addons/loaders/GLTFLoader.js'));
@@ -4453,6 +4458,9 @@ export class LoadObject3D {
       ({ KTX2Loader }      = await import('three/addons/loaders/KTX2Loader.js'));
       ({ FBXLoader }       = await import('three/addons/loaders/FBXLoader.js'));
       ({ OBJLoader }       = await import('three/addons/loaders/OBJLoader.js'));
+      ({ LineSegments2 }   = await import('three/addons/lines/LineSegments2.js'));
+      ({ WireframeGeometry2 } = await import('three/addons/lines/WireframeGeometry2.js'));
+      ({ LineMaterial }    = await import('three/addons/lines/LineMaterial.js'));
       ({ MeshoptDecoder }  = await import('three/addons/libs/meshopt_decoder.module.js'));
     } catch (e) {
       this._loadError = 'Three.js failed to load: ' + e.message;
@@ -4477,6 +4485,9 @@ export class LoadObject3D {
     this._GLTFLoader      = GLTFLoader;
     this._FBXLoader       = FBXLoader;
     this._OBJLoader       = OBJLoader;
+    this._LineSegments2   = LineSegments2;
+    this._WireframeGeometry2 = WireframeGeometry2;
+    this._LineMaterial    = LineMaterial;
 
     const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 1000);
     camera.position.set(0, 0, 5);
@@ -4557,11 +4568,12 @@ export class LoadObject3D {
 
     const t = this._three; const THREE = this._THREE;
     this._syncSize(W, H);
+    this._t += 1 / 60;
 
     const {
       scale, rotX, rotY, rotZ, autoSpin, headTrack, yawSens, pitchSens, rollSens,
       smoothing, handSnap, wireStyle, wireWidth, wireR, wireG, wireB, wireAlpha,
-      wireDash, wireGap, surfMode, surfAlpha, opacity, wireframe, hideBG, move
+      wireDash, wireGap, wireAnimate, surfMode, surfAlpha, opacity, wireframe, hideBG, move
     } = this.values;
 
     const faceLMs = allFaceLMs?.[0] ?? null;
@@ -4614,13 +4626,29 @@ export class LoadObject3D {
           }
           if (wireframe) {
             if (!node._wireObj) {
-              const wireGeom = new THREE.WireframeGeometry(node.geometry);
-              const wireMat = (wireStyle === 'Solid') ? new THREE.LineBasicMaterial() : new THREE.LineDashedMaterial();
-              node._wireObj = new THREE.LineSegments(wireGeom, wireMat); node.add(node._wireObj);
+              const wireGeom = new this._WireframeGeometry2(node.geometry);
+              const wireMat = new this._LineMaterial({ color: wireCol, linewidth: wireWidth });
+              wireMat.resolution.set(W, H);
+              node._wireObj = new this._LineSegments2(wireGeom, wireMat);
+              node._wireObj.computeLineDistances();
+              node.add(node._wireObj);
             }
-            const w = node._wireObj; w.visible = true; w.material.color.copy(wireCol); w.material.opacity = wireAlpha / 255; w.material.transparent = true;
-            if (wireStyle !== 'Solid') {
-              w.material.dashSize = (wireStyle === 'Dotted') ? 0.001 : wireDash; w.material.gapSize = wireGap; w.computeLineDistances();
+            const w = node._wireObj;
+            const dashed = wireStyle !== 'Normal';
+            w.visible = true;
+            w.material.color.copy(wireCol);
+            w.material.linewidth = wireWidth;
+            w.material.opacity = wireAlpha / 255;
+            w.material.transparent = true;
+            w.material.resolution.set(W, H);
+            w.material.dashed = dashed;
+            if (dashed) {
+              const dashSize = wireStyle === 'Dotted' ? Math.max(0.01, wireDash * 0.25) : Math.max(0.01, wireDash * 2.5);
+              const gapSize = wireStyle === 'Dotted' ? Math.max(0.01, wireGap * 1.4) : Math.max(0.01, wireGap);
+              w.material.dashSize = dashSize;
+              w.material.gapSize = gapSize;
+              w.material.dashOffset = wireAnimate ? -(this._t * 0.35) : 0;
+              w.computeLineDistances();
             }
           } else if (node._wireObj) node._wireObj.visible = false;
         }
@@ -5163,6 +5191,409 @@ export class FluidOrganism {
   }
 }
 
+export class ShaderFX {
+  static label    = 'Shader FX';
+  static category = 'PIXEL';
+  static _cachedShaders = null;
+  static _programCache  = {}; // Cache for compiled programs: { code: { program, uLocs } }
+
+  constructor() {
+    this.label    = ShaderFX.label;
+    this.category = ShaderFX.category;
+    this.params = {
+      shader: { label: 'Base Shader', type: 'select', options: [
+        ['custom', 'Custom Code']
+      ], default: 'custom' },
+      dynamic: { label: 'Dynamic Cycle', type: 'boolean', default: false },
+      dynamicList: { label: 'Cycle List (Name1, Name2)', type: 'text', default: '' },
+      dynamicMode: { label: 'Cycle Mode', type: 'select', options: [['time', 'Time'], ['audio', 'Audio Trigger']], default: 'time' },
+      dynamicSpeed: { label: 'Cycle Speed', min: 0.1, max: 10, step: 0.1, default: 1 },
+      dynamicThreshold: { label: 'Audio Threshold', min: 0.01, max: 0.5, step: 0.01, default: 0.1 },
+      target: { label: 'Target', type: 'select', options: [
+        ['auto', 'Auto (Face/Hand/Org)'],
+        ['screen', 'Full Screen']
+      ], default: 'auto' },
+      blend: { label: 'Blend', type: 'select', options: [
+        ['replace', 'Replace'],
+        ['mix', 'Mix (Intensity)'],
+        ['add', 'Add'],
+        ['screen', 'Screen'],
+        ['multiply', 'Multiply']
+      ], default: 'replace' },
+      intensity: { label: 'Intensity', min: 0, max: 1, step: 0.01, default: 1 },
+      width: { label: 'Width', min: 0.1, max: 10, step: 0.1, default: 1 },
+      rotate: { label: 'Rotate', type: 'boolean', default: false },
+      mouseRotate: { label: 'Mouse Rotate', type: 'boolean', default: false },
+      reactive: { label: 'Reactive', type: 'boolean', default: false },
+      p1: { label: 'P1', min: 0, max: 10, step: 0.1, default: 1 },
+      p2: { label: 'P2', min: 0, max: 10, step: 0.1, default: 1 },
+      p3: { label: 'P3', min: 0, max: 10, step: 0.1, default: 1 },
+      code: { label: 'Code', type: 'text', default: '' }
+    };
+    this.values = defaults(this.params);
+    
+    this._glCanvas = document.createElement('canvas');
+    this._gl = this._glCanvas.getContext('webgl2', { preserveDrawingBuffer: true, alpha: true })
+      || this._glCanvas.getContext('webgl', { preserveDrawingBuffer: true, alpha: true });
+    this._isWebGL2 = !!this._gl && typeof this._gl.texStorage2D === 'function';
+    this._scratchCanvas = document.createElement('canvas');
+    this._program = null;
+    this._tex = null;
+    this._lastShader = null;
+    this._lastCode = null;
+    this._angle = 0;
+    this._uLocs = {};
+    this._mouseRotateDisabled = false;
+    
+    // Dynamic cycling state
+    this._dynamicIndex = 0;
+    this._dynamicTime = 0;
+    this._lastTriggerMs = 0;
+    this._wasTriggered = false;
+
+    if (ShaderFX._cachedShaders?.length) this._syncShaderOptions(ShaderFX._cachedShaders);
+    this._initGL();
+    this._loadShaders();
+  }
+
+  _syncShaderOptions(shaders) {
+    const opts = [['custom', 'Custom Code']];
+    for (const shader of shaders ?? []) {
+      if (!shader?.name) continue;
+      if (!opts.find(o => o[0] === shader.name)) opts.push([shader.name, shader.name]);
+    }
+    this.params.shader.options = opts;
+    if (opts.length > 1 && (!this.values.shader || this.values.shader === 'custom' || !opts.some(([value]) => value === this.values.shader))) {
+      this.values.shader = opts[1][0];
+    }
+    this._updateMouseRotateState();
+  }
+
+  _updateMouseRotateState() {
+    this._mouseRotateDisabled = false;
+  }
+
+  async _loadShaders() {
+    try {
+      const res = await fetch('/api/shaders');
+      const data = await res.json();
+      ShaderFX._cachedShaders = data;
+      this._syncShaderOptions(data);
+      window.dispatchEvent(new Event('shader-shaders-updated'));
+    } catch (e) { console.error('Error loading shaders', e); }
+  }
+
+  async onSelectParam(key, value) {
+    if (key === 'shader') {
+      this.values.shader = value;
+      this._updateMouseRotateState();
+    }
+  }
+
+  _initGL() {
+    const gl = this._gl;
+    if (!gl) return;
+    this._buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  }
+
+  _compile(fragCode) {
+    // Check global cache first
+    if (ShaderFX._programCache[fragCode]) {
+      return ShaderFX._programCache[fragCode];
+    }
+
+    const gl = this._gl;
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    const vsSrc = this._isWebGL2
+      ? [
+          '#version 300 es',
+          'in vec2 position;',
+          'out vec2 vTexCoord;',
+          'void main() {',
+          '  vTexCoord = (position + 1.0) / 2.0;',
+          '  gl_Position = vec4(position, 0.0, 1.0);',
+          '}',
+        ].join('\n')
+      : [
+          'attribute vec2 position;',
+          'varying vec2 vTexCoord;',
+          'void main() {',
+          '  vTexCoord = (position + 1.0) / 2.0;',
+          '  gl_Position = vec4(position, 0.0, 1.0);',
+          '}',
+        ].join('\n');
+    gl.shaderSource(vs, vsSrc);
+    gl.compileShader(vs);
+
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    
+    // Auto-wrap Shadertoy mainImage if present
+    let finalCode = fragCode;
+    if (fragCode.includes('mainImage') && !fragCode.includes('void main()')) {
+      finalCode += this._isWebGL2
+        ? `\nvoid main() { mainImage(fragColor, vTexCoord * uResolution); }`
+        : `\nvoid main() { mainImage(gl_FragColor, vTexCoord * uResolution); }`;
+    }
+
+    const hasPalette = fragCode.includes('vec3 palette');
+    const paletteDef = hasPalette ? '' : 'vec3 palette(float t, vec3 a, vec3 b, vec3 c) { return a + b * cos(6.2831853 * (c * t + vec3(0.0, 0.33, 0.67))); }';
+
+    const fullFrag = this._isWebGL2
+      ? [
+          '#version 300 es',
+          'precision highp float;',
+          'precision highp int;',
+          'in vec2 vTexCoord;',
+          'out vec4 fragColor;',
+          'uniform sampler2D uSampler;',
+          'uniform float uIntensity;',
+          'uniform float uP1;',
+          'uniform float uP2;',
+          'uniform float uP3;',
+          'uniform float uTime;',
+          'uniform float uAngle;',
+          'uniform float uWidth;',
+          'uniform float uAudio;',
+          'uniform float uMouseRotate;',
+          'uniform vec2 uResolution;',
+          'uniform vec4 uMouse;',
+          '',
+          '// Compatibility aliases',
+          '#define PI 3.14159265359',
+          '#define gl_FragColor fragColor',
+          '#define iTime uTime',
+          '#define iFrame int(floor(uTime * 60.0))',
+          '#define iResolution vec3(uResolution, 1.0)',
+          '#define iMouse uMouse',
+          '#define iChannel0 uSampler',
+          '#define iChannel1 uSampler',
+          '#define iChannel2 uSampler',
+          '#define iChannel3 uSampler',
+          '#define texture2D texture',
+          paletteDef,
+          '',
+          finalCode,
+        ].join('\n')
+      : [
+          'precision highp float;',
+          'varying vec2 vTexCoord;',
+          'uniform sampler2D uSampler;',
+          'uniform float uIntensity;',
+          'uniform float uP1;',
+          'uniform float uP2;',
+          'uniform float uP3;',
+          'uniform float uTime;',
+          'uniform float uAngle;',
+          'uniform float uWidth;',
+          'uniform float uAudio;',
+          'uniform float uMouseRotate;',
+          'uniform vec2 uResolution;',
+          'uniform vec4 uMouse;',
+          '',
+          '// Shadertoy aliases',
+          '#define PI 3.14159265359',
+          '#define iTime uTime',
+          '#define iFrame int(floor(uTime * 60.0))',
+          '#define iResolution vec3(uResolution, 1.0)',
+          '#define iMouse uMouse',
+          '#define iChannel0 uSampler',
+          '#define iChannel1 uSampler',
+          '#define iChannel2 uSampler',
+          '#define iChannel3 uSampler',
+          '#define texture texture2D',
+          paletteDef,
+          '',
+          finalCode,
+        ].join('\n');
+    gl.shaderSource(fs, fullFrag);
+    gl.compileShader(fs);
+
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(fs);
+      console.warn('Shader Error:', log);
+      // Fallback shader to indicate error (magenta)
+      const errFs = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(errFs, this._isWebGL2
+        ? `#version 300 es\nprecision mediump float;\nout vec4 fragColor;\nvoid main() { fragColor = vec4(1,0,1,1); }`
+        : `precision mediump float; void main() { gl_FragColor = vec4(1,0,1,1); }`);
+      gl.compileShader(errFs);
+      const errProg = gl.createProgram();
+      gl.attachShader(errProg, vs);
+      gl.attachShader(errProg, errFs);
+      gl.linkProgram(errProg);
+      return { program: errProg, uLocs: this._getULocs(errProg) };
+    }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    
+    const res = { program: prog, uLocs: this._getULocs(prog) };
+    ShaderFX._programCache[fragCode] = res;
+    return res;
+  }
+
+  _getULocs(prog) {
+    const gl = this._gl;
+    return {
+      intensity: gl.getUniformLocation(prog, 'uIntensity'),
+      p1: gl.getUniformLocation(prog, 'uP1'),
+      p2: gl.getUniformLocation(prog, 'uP2'),
+      p3: gl.getUniformLocation(prog, 'uP3'),
+      time: gl.getUniformLocation(prog, 'uTime'),
+      angle: gl.getUniformLocation(prog, 'uAngle'),
+      width: gl.getUniformLocation(prog, 'uWidth'),
+      audio: gl.getUniformLocation(prog, 'uAudio'),
+      mouseRotate: gl.getUniformLocation(prog, 'uMouseRotate'),
+      res: gl.getUniformLocation(prog, 'uResolution'),
+      mouse: gl.getUniformLocation(prog, 'uMouse'),
+      sampler: gl.getUniformLocation(prog, 'uSampler')
+    };
+  }
+
+  apply(p, allFaceLMs, allHandLMs) {
+    const gl = this._gl;
+    if (!gl) return;
+    const ctx = p.drawingContext;
+    const W = p.width, H = p.height;
+    const level = window.AUDIO_LEVEL || 0;
+    const nowMs = performance.now();
+    const dt = 1/60; // Approx
+
+    let boxes = [];
+    if (this.values.target === 'screen') {
+      boxes = [{ x: 0, y: 0, w: W, h: H }];
+    } else {
+      boxes = getTargetBoxes(allFaceLMs, allHandLMs, p);
+    }
+    
+    if (!boxes.length) return;
+
+    let targetShaderName = this.values.shader;
+
+    // Handle dynamic cycling
+    if (this.values.dynamic && this.values.dynamicList) {
+      const list = this.values.dynamicList.split(',').map(s => s.trim()).filter(s => s);
+      if (list.length > 0) {
+        if (this.values.dynamicMode === 'time') {
+          this._dynamicTime += dt * this.values.dynamicSpeed;
+          this._dynamicIndex = Math.floor(this._dynamicTime) % list.length;
+        } else if (this.values.dynamicMode === 'audio') {
+          const threshold = this.values.dynamicThreshold;
+          if (level > threshold && !this._wasTriggered && nowMs - this._lastTriggerMs > 200) {
+            this._dynamicIndex = (this._dynamicIndex + 1) % list.length;
+            this._wasTriggered = true;
+            this._lastTriggerMs = nowMs;
+          } else if (level < threshold * 0.7) {
+            this._wasTriggered = false;
+          }
+        }
+        targetShaderName = list[this._dynamicIndex];
+      }
+    }
+
+    let currentCode = '';
+    if (targetShaderName === 'custom') {
+      currentCode = this.values.code || 'void main() { gl_FragColor = texture2D(uSampler, vTexCoord); }';
+    } else {
+      const cached = ShaderFX._cachedShaders?.find(s => s.name === targetShaderName);
+      currentCode = cached?.code || 'void main() { gl_FragColor = texture2D(uSampler, vTexCoord); }';
+    }
+
+    if (targetShaderName !== this._lastShader || currentCode !== this._lastCode) {
+      const res = this._compile(currentCode);
+      if (res) {
+        this._program = res.program;
+        this._uLocs = res.uLocs;
+      }
+      this._lastShader = targetShaderName;
+      this._lastCode = currentCode;
+    }
+
+    if (!this._program) return;
+
+    const uAudio = this.values.reactive ? level : 0;
+    const time = nowMs / 1000;
+    const mx = p.mouseX || 0;
+    const my = p.mouseY || 0;
+    const mDown = p.mouseIsPressed ? 1.0 : 0.0;
+    const mouseRotate = !!this.values.mouseRotate;
+
+    for (const box of boxes) {
+      const { x, y, w, h } = box;
+      if (w < 1 || h < 1) continue;
+
+      if (mouseRotate) {
+        this._angle = Math.atan2((my - y) - (h / 2), (mx - x) - (w / 2));
+      } else if (this.values.rotate) {
+        this._angle += 0.02 * this.values.dynamicSpeed;
+      }
+
+      if (this._glCanvas.width !== w || this._glCanvas.height !== h) {
+        this._glCanvas.width = w; this._glCanvas.height = h;
+        gl.viewport(0, 0, w, h);
+      }
+
+      // Crop input using scratch canvas
+      if (this._scratchCanvas.width !== w || this._scratchCanvas.height !== h) {
+        this._scratchCanvas.width = w; this._scratchCanvas.height = h;
+      }
+      const sctx = this._scratchCanvas.getContext('2d');
+      sctx.drawImage(ctx.canvas, x, y, w, h, 0, 0, w, h);
+
+      if (!this._tex) this._tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this._tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this._scratchCanvas);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      gl.useProgram(this._program);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this._buffer);
+      const posLoc = gl.getAttribLocation(this._program, 'position');
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+      const u = this._uLocs;
+      if (u.intensity) gl.uniform1f(u.intensity, this.values.intensity);
+      if (u.p1) gl.uniform1f(u.p1, this.values.p1);
+      if (u.p2) gl.uniform1f(u.p2, this.values.p2);
+      if (u.p3) gl.uniform1f(u.p3, this.values.p3);
+      if (u.time) gl.uniform1f(u.time, time);
+      if (u.angle) gl.uniform1f(u.angle, this._angle);
+      if (u.width) gl.uniform1f(u.width, this.values.width);
+      if (u.audio) gl.uniform1f(u.audio, uAudio);
+      if (u.mouseRotate) gl.uniform1f(u.mouseRotate, mouseRotate ? 1 : 0);
+      if (u.res) gl.uniform2f(u.res, w, h);
+      if (u.mouse) gl.uniform4f(u.mouse, mx - x, my - y, mDown, mDown);
+      if (u.sampler) gl.uniform1i(u.sampler, 0);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      
+      const oldGCO = ctx.globalCompositeOperation;
+      const oldAlpha = ctx.globalAlpha;
+
+      if (this.values.blend === 'mix') {
+        ctx.globalAlpha = this.values.intensity;
+      } else if (this.values.blend !== 'replace') {
+        ctx.globalCompositeOperation = this.values.blend;
+      }
+
+      ctx.drawImage(this._glCanvas, x, y);
+
+      ctx.globalCompositeOperation = oldGCO;
+      ctx.globalAlpha = oldAlpha;
+    }
+  }
+}
+
 export class CustomP5 {
   static label    = 'Custom P5';
   static category = 'DRAW';
@@ -5247,22 +5678,33 @@ export class Layer3D {
 }
 
 export const EFFECT_REGISTRY = [
+  ShaderFX,
+
+  HandWireframe, HandMeshSurface, HandObject,
+  HandFingernailDots,
+
+  FaceCapFX, MorphFace, CutHead, Orbits3D, FillEyesFX, DevilFX,
+  HeadGrid, Wireframe, LandmarkDots, LandmarkNormals, VertexJitter, FaceMeshSurface, ReactiveWire,
+
+  Dither, AtkinsonDither,
+  AsciiArt, AsciifyP5,
+  RasterFX, RasterWave, CRTScanlines, Scanlines,
+
+  ChromaticAberration,
+  HueSaturation,
+  Pixelate,
+
   LayerMerger,
   TextOverlay, MagnifyGlass,
   PuppetFX, PuppetModel,
-  LoadObject3D, FaceCapFX,
-  MorphFace, CutHead, Orbits3D, FillEyesFX, DevilFX,
-  HeadGrid, Wireframe, LandmarkDots, LandmarkNormals, VertexJitter,
-  FaceMeshSurface, ReactiveWire,
-  HandWireframe, HandFingernailDots, HandMeshSurface, HandObject,
+  LoadObject3D,
   PoseSkeleton, PoseGlitch,
   FluidOrganism,
-  TileGlitch, GlitchLines, ChromaticAberration,
-  Pixelate, ColorShift, Scanlines, NoiseEffect,
+  TileGlitch, GlitchLines,
+  ColorShift, NoiseEffect,
   PixelSort, VHSGlitch,
   MotionBlur, DepthOfField,
-  AsciiArt, AsciifyP5, Dither, AtkinsonDither, EdgeDetect, ComicPsychedelia, HalftoneDots, RasterFX,
-  HueSaturation, GhostTrail, FullGlitch, Vignette, FilmGrain, CRTScanlines, RasterWave,
+  GhostTrail, FullGlitch, Vignette, FilmGrain,
   CustomP5,
   Layer3D,
 ];

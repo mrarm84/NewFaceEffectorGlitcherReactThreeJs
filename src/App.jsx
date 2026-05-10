@@ -7,6 +7,7 @@ import Panel          from './components/Panel'
 import { useVideoSource } from './hooks/useVideoSource'
 import { useAudioReact  } from './hooks/useAudioReact'
 import { useFrameBuffer  } from './hooks/useFrameBuffer'
+import { MODEL_FILES, MODEL_URLS } from './modelAssets'
 import './App.css'
 
 import Editor from 'react-simple-code-editor'
@@ -18,11 +19,7 @@ import 'prismjs/themes/prism-tomorrow.css'
 // Handle potential CommonJS default export issue
 const CodeEditor = typeof Editor === 'function' ? Editor : (Editor.default || Editor)
 
-const BUILT_IN_MODELS = [
-  '/models/objects/head_Avocado.glb',
-  '/models/objects/head_BarramundiFish.glb',
-  '/models/objects/facecap.glb',
-]
+const BUILT_IN_MODELS = MODEL_URLS
 
 export default function App() {
   const effectsChainRef = useRef([])
@@ -69,13 +66,19 @@ export default function App() {
   useEffect(() => {
     fetch('/api/objects').then(r => r.json()).then(files => {
       if (files?.length) {
-        const filtered = files.filter(f => f.includes('_') || f === 'facecap.glb')
+        const filtered = files.filter(f => MODEL_FILES.includes(f))
         setServerModels(filtered.map(f => `/models/objects/${f}`))
       }
     }).catch(() => {})
   }, [])
 
   const modelList = serverModels.length ? serverModels : BUILT_IN_MODELS
+
+  useEffect(() => {
+    if (glbUrl && glbUrl.startsWith('/models/objects/') && !modelList.includes(glbUrl)) {
+      setGlbUrl(null)
+    }
+  }, [glbUrl, modelList])
 
   const handleResults = useCallback(({ faceResults, handResults, poseResults }) => {
     landmarkRef.current = { faceResults, handResults, poseResults }
